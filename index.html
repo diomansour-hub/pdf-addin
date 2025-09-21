@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Viewer Add-in</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Office.js: The Microsoft Office JavaScript API library -->
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
+    
+    <!-- PDF.js: Library to render PDF documents in the browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    
+    <style>
+        /* A simple spinner for loading feedback */
+        .loader {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div id="app" class="p-4 flex flex-col h-screen">
+        <header class="mb-4">
+            <h1 class="text-xl font-bold text-gray-800">PDF Beheerder</h1>
+            <p class="text-sm text-gray-600">Bed een PDF in of bekijk de opgeslagen PDF.</p>
+        </header>
+
+        <!-- Controls for selecting and saving a PDF -->
+        <div class="controls bg-white p-3 rounded-lg shadow-sm border border-gray-200 mb-4">
+            <div class="flex items-center space-x-2">
+                <label for="pdf-file-input" class="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium">
+                    Kies PDF
+                </label>
+                <input type="file" id="pdf-file-input" accept=".pdf" class="hidden">
+                <button id="save-pdf-button" disabled class="bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                    Sla PDF op
+                </button>
+            </div>
+            <p id="selected-file-name" class="text-xs text-gray-500 mt-2 truncate">Geen bestand geselecteerd.</p>
+        </div>
+
+        <!-- Area to display status messages and the PDF viewer -->
+        <main class="flex-grow bg-white rounded-lg shadow-sm border border-gray-200 overflow-y-auto p-2">
+            <div id="status-message" class="h-full flex flex-col items-center justify-center text-gray-500">
+                <div id="loader" class="loader hidden mb-2"></div>
+                <span id="status-text">Selecteer een PDF of laad een bestaande.</span>
+            </div>
+            <div id="pdf-viewer" class="space-y-2">
+                <!-- Canvases for PDF pages will be appended here -->
+            </div>
+        </main>
+    </div>
+
+    <script type="text/javascript">
+        // Set worker source for PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        // Wait for the Office Add-in to be ready
+        Office.onReady((info) => {
+            if (info.host === Office.HostType.Excel) {
+                // Get references to all the important UI elements
+                const fileInput = document.getElementById('pdf-file-input');
+                const saveButton = document.getElementById('save-pdf-button');
+                const selectedFileNameLabel = document.getElementById('selected-file-name');
+                const pdfViewer = document.getElementById('pdf-viewer');
+                const statusMessage = document.getElementById('status-message');
+                const statusText = document.getElementById('status-text');
+                const loader = document.getElementById('loader');
+
+                let selectedFile = null;
+
+                // --- EVENT LISTENERS ---
+
+                // Handle file selection from the user
+                fileInput.addEventListener('change', (event) => {
+                    if (event.target.files.length > 0) {
+                        selectedFile = event.target.files[0];
+                        selectedFileNameLabel.textContent = `Geselecteerd: ${selectedFile.name}`;
+                        saveButton.disabled = false;
+                        saveButton.classList.remove('bg-gray-300');
+                        saveButton.classList.add('bg-green-600', 'hover:bg-green-700');
+                    }
+                });
+
+                // Handle click on the save button
+                saveButton.addEventListener('click', savePdfToSettings);
+                
+                // --- CORE FUNCTIONS ---
+
+                /**
+                 * Reads the selected file, converts it to Base64, and saves it to the Excel document settings.
+                 */
+                function savePdfToSettings() {
+                    if (!selectedFile) {
+                        updateStatus('Selecteer eerst een bestand om op te slaan.', 'error');
+                        return;
+                    }
+                    
+                    showLoader('PDF wordt opgeslagen...');
+                    const reader = new FileReader();
+
+                    reader.onload = (event) => {
+                        const arrayBuffer = event.target.result;
+                        const base64String = arrayBufferToBase64(arrayBuffer);
+
+                        // Save the Base64 data and the filename to document settings
+                        Office.context.document.settings.set('embeddedPdfData', base64String);
+                        Office.context.document.settings.set('embeddedPdfName', selectedFile.name);
+
+                        // Persist the settings in the document
+                        Office.context.document.settings.saveAsync((asyncResult) => {
+                            if (asyncResult.status === Office.AsyncResultStatus.Succeeded) {
+                                updateStatus(`'${selectedFile.name}' is succesvol opgeslagen.`, 'success');
+                                loadAndRenderPdfFromSettings(); // Show the saved PDF immediately
+                            } else {
+                                updateStatus('Fout bij opslaan: ' + asyncResult.error.message, 'error');
+                            }
+                        });
+                    };
+
+                    reader.onerror = () => {
+                        updateStatus('Fout bij het lezen van het bestand.', 'error');
+                    };
+
+                    reader.readAsArrayBuffer(selectedFile);
+                }
+
+                /**
+                 * Loads the Base64 data from settings, converts it back, and renders the PDF.
+                 */
+                function loadAndRenderPdfFromSettings() {
+                    showLoader('Opgeslagen PDF laden...');
+                    const pdfName = Office.context.document.settings.get('embeddedPdfName');
+                    const base64Data = Office.context.document.settings.get('embeddedPdfData');
+
+                    if (base64Data && pdfName) {
+                        selectedFileNameLabel.textContent = `Huidig bestand: ${pdfName}`;
+                        const pdfData = base64ToUint8Array(base64Data);
+                        renderPdf(pdfData);
+                    } else {
+                        updateStatus('Geen ingebedde PDF gevonden in dit document.', 'info');
+                    }
+                }
+
+                /**
+                 * Renders a PDF from binary data onto canvas elements.
+                 * @param {Uint8Array} data The binary data of the PDF file.
+                 */
+                async function renderPdf(data) {
+                    pdfViewer.innerHTML = ''; // Clear previous PDF
+                    
+                    try {
+                        const loadingTask = pdfjsLib.getDocument({ data });
+                        const pdf = await loadingTask.promise;
+                        
+                        updateStatus(`Bezig met weergeven van ${pdf.numPages} pagina('s)...`, 'loading');
+
+                        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                            const page = await pdf.getPage(pageNum);
+                            const viewport = page.getViewport({ scale: 1.5 });
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+                            canvas.classList.add('mx-auto', 'shadow-md');
+
+                            pdfViewer.appendChild(canvas);
+                            
+                            await page.render({ canvasContext: context, viewport: viewport }).promise;
+                        }
+
+                        // Hide the status message once rendering is complete
+                        statusMessage.classList.add('hidden');
+
+                    } catch (error) {
+                        updateStatus('Fout bij het weergeven van de PDF: ' + error.message, 'error');
+                    }
+                }
+                
+                // --- HELPER FUNCTIONS ---
+
+                /**
+                 * Converts an ArrayBuffer to a Base64 string.
+                 * @param {ArrayBuffer} buffer The ArrayBuffer to convert.
+                 * @returns {string} The Base64 encoded string.
+                 */
+                function arrayBufferToBase64(buffer) {
+                    let binary = '';
+                    const bytes = new Uint8Array(buffer);
+                    const len = bytes.byteLength;
+                    for (let i = 0; i < len; i++) {
+                        binary += String.fromCharCode(bytes[i]);
+                    }
+                    return window.btoa(binary);
+                }
+
+                /**
+                 * Converts a Base64 string to a Uint8Array.
+                 * @param {string} base64 The Base64 string to convert.
+                 * @returns {Uint8Array} The resulting Uint8Array.
+                 */
+                function base64ToUint8Array(base64) {
+                    const binary_string = window.atob(base64);
+                    const len = binary_string.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
+                        bytes[i] = binary_string.charCodeAt(i);
+                    }
+                    return bytes;
+                }
+
+                /**
+                 * Shows the loader and updates the status text.
+                 * @param {string} text The message to display.
+                 */
+                function showLoader(text) {
+                    statusMessage.classList.remove('hidden');
+                    loader.classList.remove('hidden');
+                    statusText.textContent = text;
+                    pdfViewer.innerHTML = ''; // Clear viewer when loading
+                }
+                
+                /**
+                 * Updates the status message area with text and color coding.
+                 * @param {string} text The message to display.
+                 * @param {'info'|'success'|'error'|'loading'} type The type of message.
+                 */
+                function updateStatus(text, type) {
+                    statusMessage.classList.remove('hidden');
+                    loader.classList.add('hidden');
+                    statusText.textContent = text;
+                    
+                    statusText.classList.remove('text-red-500', 'text-green-500', 'text-gray-500');
+                    if (type === 'error') statusText.classList.add('text-red-500');
+                    else if (type === 'success') statusText.classList.add('text-green-500');
+                    else statusText.classList.add('text-gray-500');
+                }
+                
+                // On startup, check if there's an already embedded PDF
+                loadAndRenderPdfFromSettings();
+            }
+        });
+    </script>
+</body>
+</html>
