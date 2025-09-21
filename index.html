@@ -19,7 +19,6 @@
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        /* *** NIEUWE STIJLEN voor actieve knoppen *** */
         .approve-mode-active { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.5); background-color: #15803d; }
         .reject-mode-active { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.5); background-color: #b91c1c; }
 
@@ -49,7 +48,6 @@
                 <button id="export-pdf-button" disabled class="bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Exporteer</button>
                 <button id="delete-pdf-button" disabled class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Verwijder</button>
             </div>
-             <!-- *** AANGEPASTE HTML: Nieuwe knoppen voor annotatie types *** -->
             <div class="flex items-center space-x-2">
                  <button id="approve-button" disabled class="flex-1 bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Goedkeuren</button>
                  <button id="reject-button" disabled class="flex-1 bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Afkeuren</button>
@@ -78,7 +76,6 @@
                 const activeCellAddressLabel = document.getElementById('active-cell-address');
                 const fileInput = document.getElementById('pdf-file-input');
                 const exportButton = document.getElementById('export-pdf-button');
-                // *** NIEUWE UI ELEMENTEN ***
                 const approveButton = document.getElementById('approve-button');
                 const rejectButton = document.getElementById('reject-button');
                 const deleteButton = document.getElementById('delete-pdf-button');
@@ -93,7 +90,6 @@
                 let pdfCollection = [];
                 let activePdfId = null;
                 let activeCellAddress = null;
-                // *** AANGEPASTE STATE: 'null', 'approved', of 'rejected' ***
                 let currentDrawMode = null; 
                 let isDrawing = false;
                 let startCoords = { x: 0, y: 0 };
@@ -102,7 +98,6 @@
                 fileInput.addEventListener('change', handleFileSelectAndSave);
                 pdfSwitcher.addEventListener('change', switchActivePdf);
                 exportButton.addEventListener('click', exportPdfFromSettings);
-                // *** NIEUWE EVENT LISTENERS ***
                 approveButton.addEventListener('click', () => setDrawMode('approved'));
                 rejectButton.addEventListener('click', () => setDrawMode('rejected'));
                 deleteButton.addEventListener('click', deleteCurrentPdf);
@@ -154,38 +149,31 @@
                 
                 // --- ANNOTATION & RENDERING FUNCTIONS ---
                 
-                // *** AANGEPASTE FUNCTIE: Slaat nu ook het type annotatie op ***
                 function handleMouseUp(e, pageNum) {
                     if (!isDrawing || !currentDrawMode || !activePdfId || !activeCellAddress) return;
                     isDrawing = false;
                     const pdfObject = pdfCollection.find(p => p.id === activePdfId);
                     if (!pdfObject) return;
-
                     const canvas = document.querySelectorAll('.annotation-canvas')[pageNum - 1];
                     const rect = canvas.getBoundingClientRect();
                     const endX = e.clientX - rect.left;
                     const endY = e.clientY - rect.top;
-
                     if (!pdfObject.annotations[pageNum]) pdfObject.annotations[pageNum] = [];
-                    
                     pdfObject.annotations[pageNum].push({ 
                         x: startCoords.x, y: startCoords.y, 
                         w: endX - startCoords.x, h: endY - startCoords.y,
                         cellAddress: activeCellAddress,
-                        type: currentDrawMode // <-- Sla het type op
+                        type: currentDrawMode
                     });
-                    
                     saveCollectionToSettings();
-                    formatLinkedCell(activeCellAddress, currentDrawMode); // <-- Geef type mee
+                    formatLinkedCell(activeCellAddress, currentDrawMode);
                 }
                 
-                // *** AANGEPASTE FUNCTIE: Formatteert de cel op basis van type ***
                 async function formatLinkedCell(address, type) {
                     try {
                         await Excel.run(async (context) => {
                             const sheet = context.workbook.worksheets.getActiveWorksheet();
                             const range = sheet.getRange(address);
-
                             if (type === 'approved') {
                                 range.format.fill.color = "#D9EAD3"; // Light Green
                                 range.values = [["✓"]];
@@ -202,7 +190,7 @@
                     } catch (error) { console.error("Error formatting cell: " + error); }
                 }
 
-                // *** AANGEPASTE FUNCTIE: Tekent annotaties met de juiste kleur ***
+                // *** AANGEPASTE FUNCTIE: Vult de rechthoeken nu met kleur ***
                 function drawAnnotations(pageNum, canvas, annotations) {
                     const ctx = canvas.getContext('2d');
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -210,14 +198,26 @@
                     if (annotations && annotations[pageNum]) {
                         annotations[pageNum].forEach(rect => {
                             const isHighlighted = activeCellAddress && rect.cellAddress === activeCellAddress;
+
+                            // Stel vul- en randstijlen in op basis van type
+                            if (rect.type === 'approved') {
+                                ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';   // Semi-transparant groen
+                                ctx.strokeStyle = 'green';
+                            } else { // 'rejected'
+                                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)'; // Semi-transparant rood
+                                ctx.strokeStyle = 'red';
+                            }
+
                             if (isHighlighted) {
-                                ctx.strokeStyle = '#0078D4'; // Blue for active selection
+                                ctx.strokeStyle = '#0078D4'; // Blauw voor actieve selectie
                                 ctx.lineWidth = 4;
                             } else {
-                                // Kleur op basis van type
-                                ctx.strokeStyle = rect.type === 'approved' ? 'green' : 'red';
                                 ctx.lineWidth = 2;
                             }
+
+                            // Teken eerst de gevulde rechthoek
+                            ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+                            // Teken daarna de rand eroverheen
                             ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
                         });
                     }
@@ -263,7 +263,6 @@
                 function findAnnotationByCellAddress(address) { for (const pdf of pdfCollection) { if (pdf.annotations) { for (const pageNum in pdf.annotations) { const foundAnnotation = pdf.annotations[pageNum].find(annotation => annotation.cellAddress === address); if (foundAnnotation) { return { pdfId: pdf.id, pageNum: parseInt(pageNum, 10), annotation: foundAnnotation }; } } } } return null; }
                 function scrollToPage(pageNum) { const pageContainers = document.querySelectorAll('.page-container'); const targetPage = pageContainers[pageNum - 1]; if (targetPage) { targetPage.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }
 
-                // *** AANGEPASTE FUNCTIE: Tekent tijdelijke rechthoek in de juiste kleur ***
                 function handleMouseMove(e, pageNum, canvas) {
                     if (!isDrawing || !currentDrawMode) return;
                     const pdfObject = pdfCollection.find(p => p.id === activePdfId);
@@ -287,7 +286,7 @@
                     const pdfData = base64ToUint8Array(pdfObject.data);
                     await renderPdf(pdfData, pdfObject.annotations);
                     setButtonsState(true);
-                    setDrawMode(null); // Reset draw mode when loading a new PDF
+                    setDrawMode(null);
                 }
 
                 function handleFileSelectAndSave(event) { if (event.target.files.length === 0) return; const selectedFile = event.target.files[0]; selectedFileNameLabel.textContent = `Nieuw: ${selectedFile.name}`; showLoader(`'${selectedFile.name}' wordt toegevoegd...`); const reader = new FileReader(); reader.onload = (e) => { const newPdf = { id: crypto.randomUUID(), name: selectedFile.name, data: arrayBufferToBase64(e.target.result), annotations: {} }; pdfCollection.push(newPdf); saveCollectionToSettings(() => { updateStatus(`'${selectedFile.name}' succesvol toegevoegd.`, 'success'); updatePdfSwitcher(); loadPdf(newPdf.id); fileInput.value = ''; selectedFileNameLabel.textContent = 'Geen nieuw bestand geselecteerd.'; }); }; reader.readAsArrayBuffer(selectedFile); }
@@ -295,13 +294,11 @@
                 function deleteCurrentPdf() { if (!activePdfId) return; const pdfToDelete = pdfCollection.find(p => p.id === activePdfId); if (!pdfToDelete) return; pdfCollection = pdfCollection.filter(p => p.id !== activePdfId); activePdfId = null; saveCollectionToSettings(() => { initializeApp(); }); }
                 function updatePdfSwitcher() { pdfSwitcher.innerHTML = ''; if (pdfCollection.length === 0) { const option = document.createElement('option'); option.textContent = 'Geen documenten geladen'; pdfSwitcher.appendChild(option); return; } pdfCollection.forEach(pdf => { const option = document.createElement('option'); option.value = pdf.id; option.textContent = pdf.name; if (pdf.id === activePdfId) { option.selected = true; } pdfSwitcher.appendChild(option); }); }
                 
-                // *** AANGEPASTE FUNCTIE: Beheert de nieuwe knoppen ***
                 function setButtonsState(enabled) {
                     exportButton.disabled = !enabled;
                     approveButton.disabled = !enabled;
                     rejectButton.disabled = !enabled;
                     deleteButton.disabled = !enabled;
-
                     [exportButton, approveButton, rejectButton].forEach(btn => {
                         btn.classList.toggle('bg-gray-300', !enabled);
                         btn.classList.toggle('hover:bg-gray-400', !enabled);
@@ -314,16 +311,12 @@
                     rejectButton.classList.toggle('hover:bg-red-700', enabled);
                 }
 
-                // *** NIEUWE FUNCTIE: Activeert/deactiveert de tekenmodus ***
                 function setDrawMode(mode) {
-                    // Als de gekozen modus al actief is, deactiveer de tekenmodus
                     if (currentDrawMode === mode) {
                         currentDrawMode = null;
                     } else {
                         currentDrawMode = mode;
                     }
-                    
-                    // Werk UI bij
                     approveButton.classList.toggle('approve-mode-active', currentDrawMode === 'approved');
                     rejectButton.classList.toggle('reject-mode-active', currentDrawMode === 'rejected');
                     document.querySelectorAll('.annotation-canvas').forEach(c => c.style.cursor = currentDrawMode ? 'crosshair' : 'default');
