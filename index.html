@@ -1,92 +1,286 @@
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0" xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="TaskPaneApp">
-  <Id>d2c3f4a3-4b71-4a8f-9e6b-a8e5b6a7c3d1</Id>
-  <Version>1.0.0.0</Version>
-  <ProviderName>Contoso</ProviderName>
-  <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="PDF Beheerder"/>
-  <Description DefaultValue="Beheer en annoteer PDF-documenten direct in Excel."/>
-  <IconUrl DefaultValue="https://via.placeholder.com/64"/>
-  <HighResolutionIconUrl DefaultValue="https://via.placeholder.com/128"/>
-  <SupportUrl DefaultValue="http://www.contoso.com"/>
-  <AppDomains>
-    <AppDomain>https://diomansour-hub.github.io</AppDomain>
-  </AppDomains>
-  <Hosts>
-    <Host Name="Workbook"/>
-  </Hosts>
-  <!-- NIEUW: Vereiste permissie om met Excel cellen te werken -->
-  <Requirements>
-    <Sets DefaultMinVersion="1.1">
-      <Set Name="ExcelApi" MinVersion="1.1"/>
-    </Sets>
-  </Requirements>
-  <DefaultSettings>
-    <SourceLocation DefaultValue="https://diomansour-hub.github.io/pdf-addin/index.html"/>
-  </DefaultSettings>
-  <Permissions>ReadWriteDocument</Permissions>
-  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
-    <Hosts>
-      <Host xsi:type="Workbook">
-        <DesktopFormFactor>
-          <GetStarted>
-            <Title resid="GetStarted.Title"/>
-            <Description resid="GetStarted.Description"/>
-            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
-          </GetStarted>
-          <FunctionFile resid="Commands.Url"/>
-          <ExtensionPoint xsi:type="PrimaryCommandSurface">
-            <OfficeTab id="TabHome">
-              <Group id="CommandsGroup">
-                <Label resid="CommandsGroup.Label"/>
-                <Icon>
-                  <bt:Image size="16" resid="Icon.16x16"/>
-                  <bt:Image size="32" resid="Icon.32x32"/>
-                  <bt:Image size="80" resid="Icon.80x80"/>
-                </Icon>
-                <Control xsi:type="Button" id="TaskpaneButton">
-                  <Label resid="TaskpaneButton.Label"/>
-                  <Supertip>
-                    <Title resid="TaskpaneButton.Label"/>
-                    <Description resid="TaskpaneButton.Tooltip"/>
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="Icon.16x16"/>
-                    <bt:Image size="32" resid="Icon.32x32"/>
-                    <bt:Image size="80" resid="Icon.80x80"/>
-                  </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>ButtonId1</TaskpaneId>
-                    <SourceLocation resid="Taskpane.Url"/>
-                  </Action>
-                </Control>
-              </Group>
-            </OfficeTab>
-          </ExtensionPoint>
-        </DesktopFormFactor>
-      </Host>
-    </Hosts>
-    <Resources>
-      <bt:Images>
-        <bt:Image id="Icon.16x16" DefaultValue="https://via.placeholder.com/16"/>
-        <bt:Image id="Icon.32x32" DefaultValue="https://via.placeholder.com/32"/>
-        <bt:Image id="Icon.80x80" DefaultValue="https://via.placeholder.com/80"/>
-      </bt:Images>
-      <bt:Urls>
-        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="http://go.microsoft.com/fwlink/?LinkId=276812"/>
-        <bt:Url id="Commands.Url" DefaultValue="https://diomansour-hub.github.io/pdf-addin/index.html"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://diomansour-hub.github.io/pdf-addin/index.html"/>
-      </bt:Urls>
-      <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="PDF Beheerder is geladen!"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="PDF Tools"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="PDF Beheerder"/>
-      </bt:ShortStrings>
-      <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="De PDF Beheerder add-in is succesvol geladen. Ga naar het HOME-lint en klik op 'PDF Beheerder' om te beginnen."/>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open de PDF Beheerder"/>
-      </bt:LongStrings>
-    </Resources>
-  </VersionOverrides>
-</OfficeApp>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Snipper</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Office.js: The Microsoft Office JavaScript API library -->
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
+    
+    <!-- PDF.js: Library to render PDF documents in the browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    
+    <style>
+        /* A simple loader and some specific styles for the add-in */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .draw-mode-active { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); background-color: #1d4ed8; }
+        .page-container { position: relative; margin: 0.5rem auto; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+        .annotation-canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div id="app" class="p-4 flex flex-col h-screen">
+        <header class="mb-4">
+            <h1 class="text-xl font-bold text-gray-800">PDF Snipper</h1>
+            <p class="text-sm text-gray-600">Voeg PDF's toe, beheer en koppel annotaties aan cellen.</p>
+        </header>
+
+        <div class="controls bg-white p-3 rounded-lg shadow-sm border border-gray-200 mb-4 space-y-3">
+            <div class="flex items-center space-x-2">
+                <label for="pdf-file-input" class="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium">
+                    Voeg PDF toe
+                </label>
+                <input type="file" id="pdf-file-input" accept=".pdf" class="hidden">
+                <p id="selected-file-name" class="text-xs text-gray-500 truncate flex-grow">Geen nieuw bestand geselecteerd.</p>
+            </div>
+            <div class="flex items-center space-x-2">
+                <select id="pdf-switcher" class="flex-grow p-2 border border-gray-300 rounded-md text-sm">
+                    <option>Geen documenten geladen</option>
+                </select>
+                <button id="export-pdf-button" disabled class="bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Exporteer</button>
+                <button id="draw-mode-button" disabled class="bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Teken Modus</button>
+                <button id="delete-pdf-button" disabled class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Verwijder</button>
+            </div>
+            <div class="text-xs text-gray-600 bg-gray-100 p-2 rounded-md">
+                Geselecteerde cel: <span id="active-cell-address" class="font-mono font-bold">Geen</span>
+            </div>
+        </div>
+
+        <main class="flex-grow bg-white rounded-lg shadow-sm border border-gray-200 overflow-y-auto p-2">
+            <div id="status-message" class="h-full flex flex-col items-center justify-center text-gray-500">
+                <div id="loader" class="loader hidden mb-2"></div>
+                <span id="status-text">Voeg een PDF toe om te beginnen.</span>
+            </div>
+            <div id="pdf-viewer" class="space-y-2"></div>
+        </main>
+    </div>
+
+    <script type="text/javascript">
+        // Set the worker source for PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        Office.onReady((info) => {
+            if (info.host === Office.HostType.Excel) {
+                // --- UI Elements ---
+                const activeCellAddressLabel = document.getElementById('active-cell-address');
+                const fileInput = document.getElementById('pdf-file-input');
+                const exportButton = document.getElementById('export-pdf-button');
+                const drawModeButton = document.getElementById('draw-mode-button');
+                const deleteButton = document.getElementById('delete-pdf-button');
+                const pdfSwitcher = document.getElementById('pdf-switcher');
+                const selectedFileNameLabel = document.getElementById('selected-file-name');
+                const pdfViewer = document.getElementById('pdf-viewer');
+                const statusMessage = document.getElementById('status-message');
+                const statusText = document.getElementById('status-text');
+                const loader = document.getElementById('loader');
+
+                // --- Application State ---
+                let pdfCollection = [];
+                let activePdfId = null;
+                let activeCellAddress = null;
+                let isDrawingMode = false;
+                let isDrawing = false;
+                let startCoords = { x: 0, y: 0 };
+
+                // --- Event Listeners ---
+                fileInput.addEventListener('change', handleFileSelectAndSave);
+                pdfSwitcher.addEventListener('change', switchActivePdf);
+                exportButton.addEventListener('click', exportPdfFromSettings);
+                drawModeButton.addEventListener('click', toggleDrawMode);
+                deleteButton.addEventListener('click', deleteCurrentPdf);
+                
+                // Listen for selection changes in the Excel document
+                Office.context.document.addHandlerAsync(Office.EventType.DocumentSelectionChanged, onSelectionChange);
+
+
+                // --- CORE FUNCTIONS ---
+
+                function initializeApp() {
+                    onSelectionChange(); // Get the current selection immediately on load
+                    const collectionJson = Office.context.document.settings.get('pdfCollection');
+                    pdfCollection = collectionJson ? JSON.parse(collectionJson) : [];
+                    updatePdfSwitcher();
+
+                    if (pdfCollection.length > 0) {
+                        loadPdf(pdfCollection[0].id);
+                    } else {
+                        updateStatus('Voeg een PDF toe om te beginnen.', 'info');
+                        setButtonsState(false);
+                    }
+                }
+                
+                // Fired when the user changes selection in the worksheet
+                async function onSelectionChange() {
+                    try {
+                        await Excel.run(async (context) => {
+                            const range = context.workbook.getSelectedRange();
+                            range.load("address");
+                            await context.sync();
+                            activeCellAddress = range.address;
+                            activeCellAddressLabel.textContent = activeCellAddress || 'Geen';
+                            redrawAllAnnotations(); // Redraw to highlight the correct annotation
+                        });
+                    } catch (error) {
+                        console.error("Error getting selection: " + error);
+                    }
+                }
+                
+                // --- ANNOTATION & RENDERING FUNCTIONS ---
+                
+                function handleMouseUp(e, pageNum) {
+                    if (!isDrawing || !isDrawingMode || !activePdfId || !activeCellAddress) return;
+                    isDrawing = false;
+                    const pdfObject = pdfCollection.find(p => p.id === activePdfId);
+                    if (!pdfObject) return;
+
+                    const canvas = document.querySelectorAll('.annotation-canvas')[pageNum - 1];
+                    const rect = canvas.getBoundingClientRect();
+                    const endX = e.clientX - rect.left;
+                    const endY = e.clientY - rect.top;
+
+                    if (!pdfObject.annotations[pageNum]) {
+                        pdfObject.annotations[pageNum] = [];
+                    }
+                    // Save the annotation with the cell address it's linked to
+                    pdfObject.annotations[pageNum].push({ 
+                        x: startCoords.x, y: startCoords.y, 
+                        w: endX - startCoords.x, h: endY - startCoords.y,
+                        cellAddress: activeCellAddress 
+                    });
+                    
+                    saveCollectionToSettings();
+                    formatLinkedCell(activeCellAddress); // Color the cell in Excel
+                }
+
+                // Formats the linked cell in Excel to provide visual feedback
+                async function formatLinkedCell(address) {
+                    try {
+                        await Excel.run(async (context) => {
+                            const sheet = context.workbook.worksheets.getActiveWorksheet();
+                            const range = sheet.getRange(address);
+                            range.format.fill.color = "yellow";
+                            await context.sync();
+                        });
+                    } catch (error) {
+                        console.error("Error formatting cell: " + error);
+                        updateStatus(`Kon cel ${address} niet kleuren. Fout: ${error.message}`, 'error');
+                    }
+                }
+
+                // Draws all annotations for a page, highlighting the one linked to the active cell
+                function drawAnnotations(pageNum, canvas, annotations) {
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    if (annotations && annotations[pageNum]) {
+                        annotations[pageNum].forEach(rect => {
+                            const isHighlighted = activeCellAddress && rect.cellAddress === activeCellAddress;
+                            ctx.strokeStyle = isHighlighted ? '#0078D4' : 'red'; // Blue for highlight, red for default
+                            ctx.lineWidth = isHighlighted ? 4 : 2;
+                            ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+                        });
+                    }
+                }
+                
+                // Helper to redraw annotations on all visible pages
+                function redrawAllAnnotations() {
+                    const pdfObject = pdfCollection.find(p => p.id === activePdfId);
+                    if (!pdfObject) return;
+
+                    const annotationCanvases = document.querySelectorAll('.annotation-canvas');
+                    annotationCanvases.forEach((canvas, index) => {
+                        const pageNum = index + 1;
+                        drawAnnotations(pageNum, canvas, pdfObject.annotations);
+                    });
+                }
+                
+                // Renders the PDF pages and their annotation layers
+                async function renderPdf(data, annotations) {
+                    pdfViewer.innerHTML = '';
+                    try {
+                        const pdf = await pdfjsLib.getDocument({ data }).promise;
+                        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                            const page = await pdf.getPage(pageNum);
+                            const viewport = page.getViewport({ scale: 1.5 });
+                            
+                            const pageContainer = document.createElement('div');
+                            pageContainer.className = 'page-container'; pageContainer.style.width = `${viewport.width}px`; pageContainer.style.height = `${viewport.height}px`;
+                            
+                            const pdfCanvas = document.createElement('canvas');
+                            pdfCanvas.width = viewport.width; pdfCanvas.height = viewport.height;
+                            
+                            const annotationCanvas = document.createElement('canvas');
+                            annotationCanvas.className = 'annotation-canvas'; annotationCanvas.width = viewport.width; annotationCanvas.height = viewport.height;
+                            
+                            pageContainer.append(pdfCanvas, annotationCanvas);
+                            pdfViewer.appendChild(pageContainer);
+                            
+                            await page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: viewport }).promise;
+                            
+                            drawAnnotations(pageNum, annotationCanvas, annotations);
+
+                            annotationCanvas.addEventListener('mousedown', (e) => handleMouseDown(e, pageNum, annotationCanvas));
+                            annotationCanvas.addEventListener('mousemove', (e) => handleMouseMove(e, pageNum, annotationCanvas));
+                            annotationCanvas.addEventListener('mouseup', (e) => handleMouseUp(e, pageNum));
+                            annotationCanvas.addEventListener('mouseout', (e) => handleMouseUp(e, pageNum)); // End drawing if mouse leaves canvas
+                        }
+                        statusMessage.classList.add('hidden');
+                    } catch (error) {
+                        updateStatus('Fout bij weergeven PDF: ' + error.message, 'error');
+                    }
+                }
+                
+                // --- HELPER & UTILITY FUNCTIONS ---
+                
+                function handleMouseMove(e, pageNum, canvas) {
+                    if (!isDrawing || !isDrawingMode) return;
+                    const pdfObject = pdfCollection.find(p => p.id === activePdfId);
+                    if (!pdfObject) return;
+                    const rect = canvas.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    // Create a deep copy of annotations to draw the temporary rectangle without saving it
+                    const tempAnnotations = JSON.parse(JSON.stringify(pdfObject.annotations));
+                    if(!tempAnnotations[pageNum]) tempAnnotations[pageNum] = [];
+                    tempAnnotations[pageNum].push({x: startCoords.x, y: startCoords.y, w: mouseX - startCoords.x, h: mouseY - startCoords.y, cellAddress: activeCellAddress});
+                    drawAnnotations(pageNum, canvas, tempAnnotations);
+                }
+
+                function loadPdf(pdfId) {
+                    activePdfId = pdfId;
+                    const pdfObject = pdfCollection.find(p => p.id === pdfId);
+                    if (!pdfObject) { initializeApp(); return; }
+                    showLoader(`'${pdfObject.name}' laden...`);
+                    updatePdfSwitcher();
+                    const pdfData = base64ToUint8Array(pdfObject.data);
+                    renderPdf(pdfData, pdfObject.annotations);
+                    setButtonsState(true);
+                }
+
+                function handleFileSelectAndSave(event) { if (event.target.files.length === 0) return; const selectedFile = event.target.files[0]; selectedFileNameLabel.textContent = `Nieuw: ${selectedFile.name}`; showLoader(`'${selectedFile.name}' wordt toegevoegd...`); const reader = new FileReader(); reader.onload = (e) => { const newPdf = { id: crypto.randomUUID(), name: selectedFile.name, data: arrayBufferToBase64(e.target.result), annotations: {} }; pdfCollection.push(newPdf); saveCollectionToSettings(() => { updateStatus(`'${selectedFile.name}' succesvol toegevoegd.`, 'success'); updatePdfSwitcher(); loadPdf(newPdf.id); fileInput.value = ''; selectedFileNameLabel.textContent = 'Geen nieuw bestand geselecteerd.'; }); }; reader.readAsArrayBuffer(selectedFile); }
+                function switchActivePdf() { const selectedId = pdfSwitcher.value; if (selectedId) { loadPdf(selectedId); } }
+                function deleteCurrentPdf() { if (!activePdfId) return; const pdfToDelete = pdfCollection.find(p => p.id === activePdfId); if (confirm(`Weet u zeker dat u '${pdfToDelete.name}' wilt verwijderen?`)) { pdfCollection = pdfCollection.filter(p => p.id !== activePdfId); activePdfId = null; saveCollectionToSettings(() => { initializeApp(); }); } }
+                function updatePdfSwitcher() { pdfSwitcher.innerHTML = ''; if (pdfCollection.length === 0) { const option = document.createElement('option'); option.textContent = 'Geen documenten geladen'; pdfSwitcher.appendChild(option); return; } pdfCollection.forEach(pdf => { const option = document.createElement('option'); option.value = pdf.id; option.textContent = pdf.name; pdfSwitcher.appendChild(option); }); pdfSwitcher.value = activePdfId; }
+                function setButtonsState(enabled) { exportButton.disabled = !enabled; drawModeButton.disabled = !enabled; deleteButton.disabled = !enabled;[exportButton, drawModeButton].forEach(btn => { btn.classList.toggle('bg-gray-300', !enabled); }); exportButton.classList.toggle('bg-orange-500', enabled); drawModeButton.classList.toggle('bg-blue-500', enabled); }
+                function saveCollectionToSettings(callback) { Office.context.document.settings.set('pdfCollection', JSON.stringify(pdfCollection)); Office.context.document.settings.saveAsync(result => { if (result.status === Office.AsyncResultStatus.Failed) { updateStatus('Fout bij opslaan: ' + result.error.message, 'error'); } else if (callback) { callback(); } }); }
+                function toggleDrawMode() { isDrawingMode = !isDrawingMode; drawModeButton.classList.toggle('draw-mode-active', isDrawingMode); pdfViewer.style.cursor = isDrawingMode ? 'crosshair' : 'default'; }
+                function handleMouseDown(e, pageNum, canvas) { if (!isDrawingMode) return; isDrawing = true; const rect = canvas.getBoundingClientRect(); startCoords.x = e.clientX - rect.left; startCoords.y = e.clientY - rect.top; }
+                function exportPdfFromSettings() { if (!activePdfId) return; const pdfObject = pdfCollection.find(p => p.id === activePdfId); if (!pdfObject) return; try { const pdfData = base64ToUint8Array(pdfObject.data); const blob = new Blob([pdfData], { type: 'application/pdf' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = pdfObject.name; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href); } catch (error) { updateStatus('Fout tijdens exporteren: ' + error.message, 'error'); } }
+                function arrayBufferToBase64(buffer) { let binary = ''; const bytes = new Uint8Array(buffer); const len = bytes.byteLength; for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); } return window.btoa(binary); }
+                function base64ToUint8Array(base64) { const binary_string = window.atob(base64); const len = binary_string.length; const bytes = new Uint8Array(len); for (let i = 0; i < len; i++) { bytes[i] = binary_string.charCodeAt(i); } return bytes; }
+                function showLoader(text) { statusMessage.classList.remove('hidden'); loader.classList.remove('hidden'); statusText.textContent = text; pdfViewer.innerHTML = ''; }
+                function updateStatus(text, type) { statusMessage.classList.remove('hidden'); loader.classList.add('hidden'); statusText.textContent = text; statusText.classList.remove('text-red-500', 'text-green-500', 'text-gray-500'); if (type === 'error') statusText.classList.add('text-red-500'); else if (type === 'success') statusText.classList.add('text-green-500'); else statusText.classList.add('text-gray-500'); }
+                
+                // --- INITIALIZE ---
+                initializeApp();
+            }
+        });
+    </script>
+</body>
+</html>
 
