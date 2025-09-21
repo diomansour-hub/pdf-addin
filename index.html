@@ -100,22 +100,28 @@
 
                 // --- CORE FUNCTIONS ---
 
+                // *** AANGEPASTE FUNCTIE ***
+                // Corrected the order of operations to prevent a race condition on startup.
                 function initializeApp() {
-                    onSelectionChange(); // Get the current selection immediately on load
+                    // First, load the data from settings
                     const collectionJson = Office.context.document.settings.get('pdfCollection');
                     pdfCollection = collectionJson ? JSON.parse(collectionJson) : [];
                     updatePdfSwitcher();
 
-                    if (pdfCollection.length > 0) {
+                    // Now that data is loaded, get the initial selection.
+                    // This might trigger a loadPdf if the active cell is linked.
+                    onSelectionChange();
+
+                    // Finally, if no PDF has been loaded by onSelectionChange, load the first one.
+                    if (pdfCollection.length > 0 && !activePdfId) {
                         loadPdf(pdfCollection[0].id);
-                    } else {
+                    } else if (pdfCollection.length === 0) {
                         updateStatus('Voeg een PDF toe om te beginnen.', 'info');
                         setButtonsState(false);
                     }
                 }
                 
                 // Fired when the user changes selection in the worksheet
-                // *** AANGEPASTE FUNCTIE ***
                 async function onSelectionChange() {
                     try {
                         await Excel.run(async (context) => {
@@ -174,7 +180,6 @@
                     if (!pdfObject.annotations[pageNum]) {
                         pdfObject.annotations[pageNum] = [];
                     }
-                    // Save the annotation with the cell address it's linked to
                     pdfObject.annotations[pageNum].push({ 
                         x: startCoords.x, y: startCoords.y, 
                         w: endX - startCoords.x, h: endY - startCoords.y,
@@ -182,10 +187,9 @@
                     });
                     
                     saveCollectionToSettings();
-                    formatLinkedCell(activeCellAddress); // Color the cell in Excel
+                    formatLinkedCell(activeCellAddress);
                 }
 
-                // Formats the linked cell in Excel to provide visual feedback
                 async function formatLinkedCell(address) {
                     try {
                         await Excel.run(async (context) => {
@@ -200,7 +204,6 @@
                     }
                 }
 
-                // Draws all annotations for a page, highlighting the one linked to the active cell
                 function drawAnnotations(pageNum, canvas, annotations) {
                     const ctx = canvas.getContext('2d');
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -208,14 +211,13 @@
                     if (annotations && annotations[pageNum]) {
                         annotations[pageNum].forEach(rect => {
                             const isHighlighted = activeCellAddress && rect.cellAddress === activeCellAddress;
-                            ctx.strokeStyle = isHighlighted ? '#0078D4' : 'red'; // Blue for highlight, red for default
+                            ctx.strokeStyle = isHighlighted ? '#0078D4' : 'red';
                             ctx.lineWidth = isHighlighted ? 4 : 2;
                             ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
                         });
                     }
                 }
                 
-                // Helper to redraw annotations on all visible pages
                 function redrawAllAnnotations() {
                     const pdfObject = pdfCollection.find(p => p.id === activePdfId);
                     if (!pdfObject) return;
@@ -227,7 +229,6 @@
                     });
                 }
                 
-                // Renders the PDF pages and their annotation layers
                 async function renderPdf(data, annotations) {
                     pdfViewer.innerHTML = '';
                     try {
@@ -255,7 +256,7 @@
                             annotationCanvas.addEventListener('mousedown', (e) => handleMouseDown(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mousemove', (e) => handleMouseMove(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mouseup', (e) => handleMouseUp(e, pageNum));
-                            annotationCanvas.addEventListener('mouseout', (e) => handleMouseUp(e, pageNum)); // End drawing if mouse leaves canvas
+                            annotationCanvas.addEventListener('mouseout', (e) => handleMouseUp(e, pageNum));
                         }
                         statusMessage.classList.add('hidden');
                     } catch (error) {
@@ -265,38 +266,25 @@
                 
                 // --- HELPER & UTILITY FUNCTIONS ---
                 
-                // *** NIEUWE FUNCTIE ***
-                // Finds an annotation anywhere in the collection by its linked cell address
                 function findAnnotationByCellAddress(address) {
                     for (const pdf of pdfCollection) {
                         if (pdf.annotations) {
                             for (const pageNum in pdf.annotations) {
                                 const foundAnnotation = pdf.annotations[pageNum].find(annotation => annotation.cellAddress === address);
                                 if (foundAnnotation) {
-                                    // We found it! Return all the info we need.
-                                    return {
-                                        pdfId: pdf.id,
-                                        pageNum: parseInt(pageNum, 10),
-                                        annotation: foundAnnotation
-                                    };
+                                    return { pdfId: pdf.id, pageNum: parseInt(pageNum, 10), annotation: foundAnnotation };
                                 }
                             }
                         }
                     }
-                    return null; // Return null if no annotation is found for this address
+                    return null;
                 }
 
-                // *** NIEUWE FUNCTIE ***
-                // Scrolls the PDF viewer to the specified page
                 function scrollToPage(pageNum) {
                     const pageContainers = document.querySelectorAll('.page-container');
-                    // pageNum is 1-based, array index is 0-based
                     const targetPage = pageContainers[pageNum - 1];
                     if (targetPage) {
-                        targetPage.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'start'
-                        });
+                        targetPage.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                 }
 
@@ -307,15 +295,12 @@
                     const rect = canvas.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
                     const mouseY = e.clientY - rect.top;
-                    // Create a deep copy of annotations to draw the temporary rectangle without saving it
                     const tempAnnotations = JSON.parse(JSON.stringify(pdfObject.annotations));
                     if(!tempAnnotations[pageNum]) tempAnnotations[pageNum] = [];
                     tempAnnotations[pageNum].push({x: startCoords.x, y: startCoords.y, w: mouseX - startCoords.x, h: mouseY - startCoords.y, cellAddress: activeCellAddress});
                     drawAnnotations(pageNum, canvas, tempAnnotations);
                 }
 
-                // *** AANGEPASTE FUNCTIE ***
-                // Made async to await the rendering process
                 async function loadPdf(pdfId) {
                     activePdfId = pdfId;
                     const pdfObject = pdfCollection.find(p => p.id === pdfId);
@@ -326,14 +311,53 @@
                     showLoader(`'${pdfObject.name}' laden...`);
                     updatePdfSwitcher();
                     const pdfData = base64ToUint8Array(pdfObject.data);
-                    await renderPdf(pdfData, pdfObject.annotations); // Await the rendering
+                    await renderPdf(pdfData, pdfObject.annotations);
                     setButtonsState(true);
                 }
 
                 function handleFileSelectAndSave(event) { if (event.target.files.length === 0) return; const selectedFile = event.target.files[0]; selectedFileNameLabel.textContent = `Nieuw: ${selectedFile.name}`; showLoader(`'${selectedFile.name}' wordt toegevoegd...`); const reader = new FileReader(); reader.onload = (e) => { const newPdf = { id: crypto.randomUUID(), name: selectedFile.name, data: arrayBufferToBase64(e.target.result), annotations: {} }; pdfCollection.push(newPdf); saveCollectionToSettings(() => { updateStatus(`'${selectedFile.name}' succesvol toegevoegd.`, 'success'); updatePdfSwitcher(); loadPdf(newPdf.id); fileInput.value = ''; selectedFileNameLabel.textContent = 'Geen nieuw bestand geselecteerd.'; }); }; reader.readAsArrayBuffer(selectedFile); }
-                function switchActivePdf() { const selectedId = pdfSwitcher.value; if (selectedId) { loadPdf(selectedId); } }
-                function deleteCurrentPdf() { if (!activePdfId) return; const pdfToDelete = pdfCollection.find(p => p.id === activePdfId); if (confirm(`Weet u zeker dat u '${pdfToDelete.name}' wilt verwijderen?`)) { pdfCollection = pdfCollection.filter(p => p.id !== activePdfId); activePdfId = null; saveCollectionToSettings(() => { initializeApp(); }); } }
-                function updatePdfSwitcher() { pdfSwitcher.innerHTML = ''; if (pdfCollection.length === 0) { const option = document.createElement('option'); option.textContent = 'Geen documenten geladen'; pdfSwitcher.appendChild(option); return; } pdfCollection.forEach(pdf => { const option = document.createElement('option'); option.value = pdf.id; option.textContent = pdf.name; pdfSwitcher.appendChild(option); }); if (activePdfId) { pdfSwitcher.value = activePdfId; } }
+                
+                async function switchActivePdf() { const selectedId = pdfSwitcher.value; if (selectedId) { await loadPdf(selectedId); } }
+                
+                // *** AANGEPASTE FUNCTIE ***
+                // Removed the blocking confirm() dialog, which is not well-supported in add-ins.
+                function deleteCurrentPdf() {
+                    if (!activePdfId) return;
+                    const pdfToDelete = pdfCollection.find(p => p.id === activePdfId);
+                    if (!pdfToDelete) return;
+
+                    // A custom modal dialog would be a good future improvement.
+                    pdfCollection = pdfCollection.filter(p => p.id !== activePdfId);
+                    activePdfId = null;
+                    saveCollectionToSettings(() => {
+                        initializeApp(); // Re-initialize the app state
+                    });
+                }
+                
+                // *** AANGEPASTE FUNCTIE ***
+                // Made more robust by explicitly setting the 'selected' attribute on the correct option.
+                function updatePdfSwitcher() {
+                    pdfSwitcher.innerHTML = ''; // Clear options
+
+                    if (pdfCollection.length === 0) {
+                        const option = document.createElement('option');
+                        option.textContent = 'Geen documenten geladen';
+                        pdfSwitcher.appendChild(option);
+                        return;
+                    }
+
+                    pdfCollection.forEach(pdf => {
+                        const option = document.createElement('option');
+                        option.value = pdf.id;
+                        option.textContent = pdf.name;
+                        // Set the selected attribute directly for the active PDF
+                        if (pdf.id === activePdfId) {
+                            option.selected = true;
+                        }
+                        pdfSwitcher.appendChild(option);
+                    });
+                }
+
                 function setButtonsState(enabled) { exportButton.disabled = !enabled; drawModeButton.disabled = !enabled; deleteButton.disabled = !enabled;[exportButton, drawModeButton].forEach(btn => { btn.classList.toggle('bg-gray-300', !enabled); btn.classList.toggle('hover:bg-gray-400', !enabled); }); exportButton.classList.toggle('bg-orange-500', enabled); exportButton.classList.toggle('hover:bg-orange-600', enabled); drawModeButton.classList.toggle('bg-blue-500', enabled); drawModeButton.classList.toggle('hover:bg-blue-600', enabled); }
                 function saveCollectionToSettings(callback) { Office.context.document.settings.set('pdfCollection', JSON.stringify(pdfCollection)); Office.context.document.settings.saveAsync(result => { if (result.status === Office.AsyncResultStatus.Failed) { updateStatus('Fout bij opslaan: ' + result.error.message, 'error'); } else if (callback) { callback(); } }); }
                 function toggleDrawMode() { isDrawingMode = !isDrawingMode; drawModeButton.classList.toggle('draw-mode-active', isDrawingMode); document.querySelectorAll('.annotation-canvas').forEach(c => c.style.cursor = isDrawingMode ? 'crosshair' : 'default'); }
@@ -351,3 +375,4 @@
     </script>
 </body>
 </html>
+
