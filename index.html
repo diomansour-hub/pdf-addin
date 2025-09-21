@@ -149,6 +149,7 @@
                 
                 // --- ANNOTATION & RENDERING FUNCTIONS ---
                 
+                // *** GECORRIGEERDE FUNCTIE: Voorkomt aanmaken van annotatie bij een simpele klik ***
                 function handleMouseUp(e, pageNum) {
                     if (!isDrawing || !currentDrawMode || !activePdfId || !activeCellAddress) return;
                     isDrawing = false;
@@ -158,10 +159,20 @@
                     const rect = canvas.getBoundingClientRect();
                     const endX = e.clientX - rect.left;
                     const endY = e.clientY - rect.top;
+                    
+                    const width = endX - startCoords.x;
+                    const height = endY - startCoords.y;
+
+                    // Voorkom het aanmaken van een annotatie bij een simpele klik (geen sleepbeweging)
+                    if (Math.abs(width) < 5 && Math.abs(height) < 5) {
+                        redrawAllAnnotations(); // Maak het canvas schoon van een eventuele tijdelijke rechthoek
+                        return;
+                    }
+
                     if (!pdfObject.annotations[pageNum]) pdfObject.annotations[pageNum] = [];
                     pdfObject.annotations[pageNum].push({ 
                         x: startCoords.x, y: startCoords.y, 
-                        w: endX - startCoords.x, h: endY - startCoords.y,
+                        w: width, h: height,
                         cellAddress: activeCellAddress,
                         type: currentDrawMode
                     });
@@ -175,13 +186,13 @@
                             const sheet = context.workbook.worksheets.getActiveWorksheet();
                             const range = sheet.getRange(address);
                             if (type === 'approved') {
-                                range.format.fill.color = "#D9EAD3"; // Light Green
+                                range.format.fill.color = "#D9EAD3";
                                 range.values = [["✓"]];
-                                range.format.font.color = "#38761D"; // Dark Green
+                                range.format.font.color = "#38761D";
                             } else if (type === 'rejected') {
-                                range.format.fill.color = "#F4CCCC"; // Light Red
+                                range.format.fill.color = "#F4CCCC";
                                 range.values = [["X"]];
-                                range.format.font.color = "#990000"; // Dark Red
+                                range.format.font.color = "#990000";
                             }
                             range.format.font.bold = true;
                             range.format.horizontalAlignment = "Center";
@@ -193,7 +204,6 @@
                 function drawAnnotations(pageNum, canvas, annotations) {
                     const ctx = canvas.getContext('2d');
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    
                     if (annotations && annotations[pageNum]) {
                         annotations[pageNum].forEach(rect => {
                             const isHighlighted = activeCellAddress && rect.cellAddress === activeCellAddress;
@@ -226,7 +236,6 @@
                     });
                 }
                 
-                // *** AANGEPASTE FUNCTIE: Voegt nu een 'click' listener toe ***
                 async function renderPdf(data, annotations) {
                     pdfViewer.innerHTML = '';
                     try {
@@ -245,13 +254,10 @@
                             await page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: viewport }).promise;
                             drawAnnotations(pageNum, annotationCanvas, annotations);
 
-                            // Event listeners for drawing
                             annotationCanvas.addEventListener('mousedown', (e) => handleMouseDown(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mousemove', (e) => handleMouseMove(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mouseup', (e) => handleMouseUp(e, pageNum));
                             annotationCanvas.addEventListener('mouseout', (e) => handleMouseUp(e, pageNum));
-
-                            // *** NIEUWE EVENT LISTENER voor het klikken op annotaties ***
                             annotationCanvas.addEventListener('click', (e) => handleClickOnCanvas(e, pageNum, annotationCanvas));
                         }
                         statusMessage.classList.add('hidden');
@@ -260,29 +266,23 @@
                 
                 // --- HELPER & UTILITY FUNCTIONS ---
 
-                // *** NIEUWE FUNCTIE: Navigeert naar de cel in Excel ***
                 async function navigateToCell(fullAddress) {
                     try {
                         await Excel.run(async (context) => {
                             let sheetName;
                             let rangeAddress;
-
                             if (fullAddress.includes('!')) {
                                 const parts = fullAddress.split('!');
-                                // Bladnamen met spaties kunnen in enkele aanhalingstekens staan
                                 sheetName = parts[0].replace(/'/g, ''); 
                                 rangeAddress = parts[1];
                             } else {
-                                // Als er geen '!' is, gebruiken we het actieve blad
                                 sheetName = context.workbook.worksheets.getActiveWorksheet().load('name');
                                 rangeAddress = fullAddress;
                             }
-                            
                             const sheet = context.workbook.worksheets.getItem(sheetName);
                             const range = sheet.getRange(rangeAddress);
                             sheet.activate();
                             range.select();
-                            
                             await context.sync();
                         });
                     } catch (error) {
@@ -291,11 +291,8 @@
                     }
                 }
 
-                // *** NIEUWE FUNCTIE: Verwerkt klikken op het canvas ***
+                // *** GECORRIGEERDE FUNCTIE: Navigeert altijd bij klik op annotatie en stopt tekenmodus ***
                 function handleClickOnCanvas(e, pageNum, canvas) {
-                    // Als we in tekenmodus zijn, willen we niet navigeren
-                    if (currentDrawMode) return;
-
                     const pdfObject = pdfCollection.find(p => p.id === activePdfId);
                     if (!pdfObject || !pdfObject.annotations || !pdfObject.annotations[pageNum]) return;
 
@@ -303,15 +300,41 @@
                     const clickX = e.clientX - rect.left;
                     const clickY = e.clientY - rect.top;
 
-                    // Zoek de bovenste annotatie waarop geklikt is (de laatst getekende)
                     const clickedAnnotation = [...pdfObject.annotations[pageNum]].reverse().find(anno => 
                         clickX >= anno.x && clickX <= anno.x + anno.w &&
                         clickY >= anno.y && clickY <= anno.y + anno.h
                     );
 
                     if (clickedAnnotation) {
+                        if (currentDrawMode) {
+                            setDrawMode(null); // Schakel tekenmodus uit
+                        }
                         navigateToCell(clickedAnnotation.cellAddress);
                     }
+                }
+
+                // *** GECORRIGEERDE FUNCTIE: Blokkeert start van tekenen bij klik op bestaande annotatie ***
+                function handleMouseDown(e, pageNum, canvas) {
+                    const pdfObject = pdfCollection.find(p => p.id === activePdfId);
+                    if (pdfObject && pdfObject.annotations && pdfObject.annotations[pageNum]) {
+                        const rect = canvas.getBoundingClientRect();
+                        const clickX = e.clientX - rect.left;
+                        const clickY = e.clientY - rect.top;
+                        const clickedAnnotation = [...pdfObject.annotations[pageNum]].reverse().find(anno =>
+                            clickX >= anno.x && clickX <= anno.x + anno.w &&
+                            clickY >= anno.y && clickY <= anno.y + anno.h
+                        );
+                        if (clickedAnnotation) {
+                            isDrawing = false; // Blokkeer het starten van een tekenactie
+                            return;
+                        }
+                    }
+
+                    if (!currentDrawMode) return;
+                    isDrawing = true;
+                    const canvasRect = canvas.getBoundingClientRect();
+                    startCoords.x = e.clientX - canvasRect.left;
+                    startCoords.y = e.clientY - canvasRect.top;
                 }
 
                 function findAnnotationByCellAddress(address) { for (const pdf of pdfCollection) { if (pdf.annotations) { for (const pageNum in pdf.annotations) { const foundAnnotation = pdf.annotations[pageNum].find(annotation => annotation.cellAddress === address); if (foundAnnotation) { return { pdfId: pdf.id, pageNum: parseInt(pageNum, 10), annotation: foundAnnotation }; } } } } return null; }
@@ -377,7 +400,6 @@
                 }
 
                 function saveCollectionToSettings(callback) { Office.context.document.settings.set('pdfCollection', JSON.stringify(pdfCollection)); Office.context.document.settings.saveAsync(result => { if (result.status === Office.AsyncResultStatus.Failed) { updateStatus('Fout bij opslaan: ' + result.error.message, 'error'); } else if (callback) { callback(); } }); }
-                function handleMouseDown(e, pageNum, canvas) { if (!currentDrawMode) return; isDrawing = true; const rect = canvas.getBoundingClientRect(); startCoords.x = e.clientX - rect.left; startCoords.y = e.clientY - rect.top; }
                 function exportPdfFromSettings() { if (!activePdfId) return; const pdfObject = pdfCollection.find(p => p.id === activePdfId); if (!pdfObject) return; try { const pdfData = base64ToUint8Array(pdfObject.data); const blob = new Blob([pdfData], { type: 'application/pdf' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = pdfObject.name; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href); } catch (error) { updateStatus('Fout tijdens exporteren: ' + error.message, 'error'); } }
                 function arrayBufferToBase64(buffer) { let binary = ''; const bytes = new Uint8Array(buffer); const len = bytes.byteLength; for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); } return window.btoa(binary); }
                 function base64ToUint8Array(base64) { const binary_string = window.atob(base64); const len = binary_string.length; const bytes = new Uint8Array(len); for (let i = 0; i < len; i++) { bytes[i] = binary_string.charCodeAt(i); } return bytes; }
