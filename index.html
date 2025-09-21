@@ -35,10 +35,10 @@
     <div id="app" class="p-4 flex flex-col h-screen">
         <header class="mb-4">
             <h1 class="text-xl font-bold text-gray-800">PDF Beheerder</h1>
-            <p class="text-sm text-gray-600">Bed een PDF in of bekijk de opgeslagen PDF.</p>
+            <p class="text-sm text-gray-600">Bed een PDF in, bekijk of exporteer de opgeslagen PDF.</p>
         </header>
 
-        <!-- Controls for selecting and saving a PDF -->
+        <!-- Controls for selecting, saving and exporting a PDF -->
         <div class="controls bg-white p-3 rounded-lg shadow-sm border border-gray-200 mb-4">
             <div class="flex items-center space-x-2">
                 <label for="pdf-file-input" class="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium">
@@ -47,6 +47,10 @@
                 <input type="file" id="pdf-file-input" accept=".pdf" class="hidden">
                 <button id="save-pdf-button" disabled class="bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
                     Sla PDF op
+                </button>
+                <!-- NIEUW: Knop om de PDF te exporteren/downloaden -->
+                <button id="export-pdf-button" disabled class="bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                    Exporteer PDF
                 </button>
             </div>
             <p id="selected-file-name" class="text-xs text-gray-500 mt-2 truncate">Geen bestand geselecteerd.</p>
@@ -74,6 +78,7 @@
                 // Get references to all the important UI elements
                 const fileInput = document.getElementById('pdf-file-input');
                 const saveButton = document.getElementById('save-pdf-button');
+                const exportButton = document.getElementById('export-pdf-button'); // NIEUW
                 const selectedFileNameLabel = document.getElementById('selected-file-name');
                 const pdfViewer = document.getElementById('pdf-viewer');
                 const statusMessage = document.getElementById('status-message');
@@ -84,26 +89,22 @@
 
                 // --- EVENT LISTENERS ---
 
-                // Handle file selection from the user
                 fileInput.addEventListener('change', (event) => {
                     if (event.target.files.length > 0) {
                         selectedFile = event.target.files[0];
                         selectedFileNameLabel.textContent = `Geselecteerd: ${selectedFile.name}`;
                         saveButton.disabled = false;
-                        saveButton.classList.remove('bg-gray-300');
-                        saveButton.classList.add('bg-green-600', 'hover:bg-green-700');
+                        saveButton.classList.replace('bg-gray-300', 'bg-green-600');
                     }
                 });
 
-                // Handle click on the save button
                 saveButton.addEventListener('click', savePdfToSettings);
-                
+                exportButton.addEventListener('click', exportPdfFromSettings); // NIEUW
+
                 // --- CORE FUNCTIONS ---
 
-                /**
-                 * Reads the selected file, converts it to Base64, and saves it to the Excel document settings.
-                 */
                 function savePdfToSettings() {
+                    // ... (deze functie is ongewijzigd) ...
                     if (!selectedFile) {
                         updateStatus('Selecteer eerst een bestand om op te slaan.', 'error');
                         return;
@@ -116,15 +117,13 @@
                         const arrayBuffer = event.target.result;
                         const base64String = arrayBufferToBase64(arrayBuffer);
 
-                        // Save the Base64 data and the filename to document settings
                         Office.context.document.settings.set('embeddedPdfData', base64String);
                         Office.context.document.settings.set('embeddedPdfName', selectedFile.name);
 
-                        // Persist the settings in the document
                         Office.context.document.settings.saveAsync((asyncResult) => {
                             if (asyncResult.status === Office.AsyncResultStatus.Succeeded) {
                                 updateStatus(`'${selectedFile.name}' is succesvol opgeslagen.`, 'success');
-                                loadAndRenderPdfFromSettings(); // Show the saved PDF immediately
+                                loadAndRenderPdfFromSettings();
                             } else {
                                 updateStatus('Fout bij opslaan: ' + asyncResult.error.message, 'error');
                             }
@@ -138,9 +137,6 @@
                     reader.readAsArrayBuffer(selectedFile);
                 }
 
-                /**
-                 * Loads the Base64 data from settings, converts it back, and renders the PDF.
-                 */
                 function loadAndRenderPdfFromSettings() {
                     showLoader('Opgeslagen PDF laden...');
                     const pdfName = Office.context.document.settings.get('embeddedPdfName');
@@ -148,19 +144,58 @@
 
                     if (base64Data && pdfName) {
                         selectedFileNameLabel.textContent = `Huidig bestand: ${pdfName}`;
+                        // NIEUW: export knop inschakelen
+                        exportButton.disabled = false;
+                        exportButton.classList.replace('bg-gray-300', 'bg-orange-500');
+                        
                         const pdfData = base64ToUint8Array(base64Data);
                         renderPdf(pdfData);
                     } else {
                         updateStatus('Geen ingebedde PDF gevonden in dit document.', 'info');
+                        // NIEUW: export knop uitschakelen
+                        exportButton.disabled = true;
+                        exportButton.classList.replace('bg-orange-500', 'bg-gray-300');
                     }
                 }
 
                 /**
-                 * Renders a PDF from binary data onto canvas elements.
-                 * @param {Uint8Array} data The binary data of the PDF file.
+                 * NIEUW: Leest de opgeslagen PDF-data en triggert een browser download.
                  */
+                function exportPdfFromSettings() {
+                    const pdfName = Office.context.document.settings.get('embeddedPdfName');
+                    const base64Data = Office.context.document.settings.get('embeddedPdfData');
+
+                    if (!base64Data || !pdfName) {
+                        updateStatus('Geen PDF gevonden om te exporteren.', 'error');
+                        return;
+                    }
+
+                    try {
+                        const pdfData = base64ToUint8Array(base64Data);
+                        // Creëer een 'Blob', een object dat ruwe data representeert (in dit geval onze PDF).
+                        const blob = new Blob([pdfData], { type: 'application/pdf' });
+
+                        // Creëer een tijdelijke download link in het geheugen.
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = pdfName;
+
+                        // Simuleer een klik op de link om de download te starten.
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        
+                        // Ruim de tijdelijke URL op.
+                        URL.revokeObjectURL(link.href);
+
+                    } catch (error) {
+                        updateStatus('Fout tijdens exporteren: ' + error.message, 'error');
+                    }
+                }
+
                 async function renderPdf(data) {
-                    pdfViewer.innerHTML = ''; // Clear previous PDF
+                    // ... (deze functie is ongewijzigd) ...
+                    pdfViewer.innerHTML = '';
                     
                     try {
                         const loadingTask = pdfjsLib.getDocument({ data });
@@ -182,7 +217,6 @@
                             await page.render({ canvasContext: context, viewport: viewport }).promise;
                         }
 
-                        // Hide the status message once rendering is complete
                         statusMessage.classList.add('hidden');
 
                     } catch (error) {
@@ -192,12 +226,8 @@
                 
                 // --- HELPER FUNCTIONS ---
 
-                /**
-                 * Converts an ArrayBuffer to a Base64 string.
-                 * @param {ArrayBuffer} buffer The ArrayBuffer to convert.
-                 * @returns {string} The Base64 encoded string.
-                 */
                 function arrayBufferToBase64(buffer) {
+                    // ... (ongewijzigd) ...
                     let binary = '';
                     const bytes = new Uint8Array(buffer);
                     const len = bytes.byteLength;
@@ -207,12 +237,8 @@
                     return window.btoa(binary);
                 }
 
-                /**
-                 * Converts a Base64 string to a Uint8Array.
-                 * @param {string} base64 The Base64 string to convert.
-                 * @returns {Uint8Array} The resulting Uint8Array.
-                 */
                 function base64ToUint8Array(base64) {
+                    // ... (ongewijzigd) ...
                     const binary_string = window.atob(base64);
                     const len = binary_string.length;
                     const bytes = new Uint8Array(len);
@@ -222,23 +248,16 @@
                     return bytes;
                 }
 
-                /**
-                 * Shows the loader and updates the status text.
-                 * @param {string} text The message to display.
-                 */
                 function showLoader(text) {
+                    // ... (ongewijzigd) ...
                     statusMessage.classList.remove('hidden');
                     loader.classList.remove('hidden');
                     statusText.textContent = text;
-                    pdfViewer.innerHTML = ''; // Clear viewer when loading
+                    pdfViewer.innerHTML = '';
                 }
                 
-                /**
-                 * Updates the status message area with text and color coding.
-                 * @param {string} text The message to display.
-                 * @param {'info'|'success'|'error'|'loading'} type The type of message.
-                 */
                 function updateStatus(text, type) {
+                    // ... (ongewijzigd) ...
                     statusMessage.classList.remove('hidden');
                     loader.classList.add('hidden');
                     statusText.textContent = text;
@@ -249,10 +268,10 @@
                     else statusText.classList.add('text-gray-500');
                 }
                 
-                // On startup, check if there's an already embedded PDF
                 loadAndRenderPdfFromSettings();
             }
         });
     </script>
 </body>
 </html>
+
