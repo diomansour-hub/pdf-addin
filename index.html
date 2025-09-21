@@ -190,7 +190,6 @@
                     } catch (error) { console.error("Error formatting cell: " + error); }
                 }
 
-                // *** AANGEPASTE FUNCTIE: Vult de rechthoeken nu met kleur ***
                 function drawAnnotations(pageNum, canvas, annotations) {
                     const ctx = canvas.getContext('2d');
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -198,26 +197,20 @@
                     if (annotations && annotations[pageNum]) {
                         annotations[pageNum].forEach(rect => {
                             const isHighlighted = activeCellAddress && rect.cellAddress === activeCellAddress;
-
-                            // Stel vul- en randstijlen in op basis van type
                             if (rect.type === 'approved') {
-                                ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';   // Semi-transparant groen
+                                ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
                                 ctx.strokeStyle = 'green';
-                            } else { // 'rejected'
-                                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)'; // Semi-transparant rood
+                            } else {
+                                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
                                 ctx.strokeStyle = 'red';
                             }
-
                             if (isHighlighted) {
-                                ctx.strokeStyle = '#0078D4'; // Blauw voor actieve selectie
+                                ctx.strokeStyle = '#0078D4';
                                 ctx.lineWidth = 4;
                             } else {
                                 ctx.lineWidth = 2;
                             }
-
-                            // Teken eerst de gevulde rechthoek
                             ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-                            // Teken daarna de rand eroverheen
                             ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
                         });
                     }
@@ -233,6 +226,7 @@
                     });
                 }
                 
+                // *** AANGEPASTE FUNCTIE: Voegt nu een 'click' listener toe ***
                 async function renderPdf(data, annotations) {
                     pdfViewer.innerHTML = '';
                     try {
@@ -250,16 +244,76 @@
                             pdfViewer.appendChild(pageContainer);
                             await page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: viewport }).promise;
                             drawAnnotations(pageNum, annotationCanvas, annotations);
+
+                            // Event listeners for drawing
                             annotationCanvas.addEventListener('mousedown', (e) => handleMouseDown(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mousemove', (e) => handleMouseMove(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mouseup', (e) => handleMouseUp(e, pageNum));
                             annotationCanvas.addEventListener('mouseout', (e) => handleMouseUp(e, pageNum));
+
+                            // *** NIEUWE EVENT LISTENER voor het klikken op annotaties ***
+                            annotationCanvas.addEventListener('click', (e) => handleClickOnCanvas(e, pageNum, annotationCanvas));
                         }
                         statusMessage.classList.add('hidden');
                     } catch (error) { updateStatus('Fout bij weergeven PDF: ' + error.message, 'error'); }
                 }
                 
                 // --- HELPER & UTILITY FUNCTIONS ---
+
+                // *** NIEUWE FUNCTIE: Navigeert naar de cel in Excel ***
+                async function navigateToCell(fullAddress) {
+                    try {
+                        await Excel.run(async (context) => {
+                            let sheetName;
+                            let rangeAddress;
+
+                            if (fullAddress.includes('!')) {
+                                const parts = fullAddress.split('!');
+                                // Bladnamen met spaties kunnen in enkele aanhalingstekens staan
+                                sheetName = parts[0].replace(/'/g, ''); 
+                                rangeAddress = parts[1];
+                            } else {
+                                // Als er geen '!' is, gebruiken we het actieve blad
+                                sheetName = context.workbook.worksheets.getActiveWorksheet().load('name');
+                                rangeAddress = fullAddress;
+                            }
+                            
+                            const sheet = context.workbook.worksheets.getItem(sheetName);
+                            const range = sheet.getRange(rangeAddress);
+                            sheet.activate();
+                            range.select();
+                            
+                            await context.sync();
+                        });
+                    } catch (error) {
+                        console.error(`Error navigating to cell ${fullAddress}:`, error);
+                        updateStatus(`Kon niet navigeren naar ${fullAddress}.`, 'error');
+                    }
+                }
+
+                // *** NIEUWE FUNCTIE: Verwerkt klikken op het canvas ***
+                function handleClickOnCanvas(e, pageNum, canvas) {
+                    // Als we in tekenmodus zijn, willen we niet navigeren
+                    if (currentDrawMode) return;
+
+                    const pdfObject = pdfCollection.find(p => p.id === activePdfId);
+                    if (!pdfObject || !pdfObject.annotations || !pdfObject.annotations[pageNum]) return;
+
+                    const rect = canvas.getBoundingClientRect();
+                    const clickX = e.clientX - rect.left;
+                    const clickY = e.clientY - rect.top;
+
+                    // Zoek de bovenste annotatie waarop geklikt is (de laatst getekende)
+                    const clickedAnnotation = [...pdfObject.annotations[pageNum]].reverse().find(anno => 
+                        clickX >= anno.x && clickX <= anno.x + anno.w &&
+                        clickY >= anno.y && clickY <= anno.y + anno.h
+                    );
+
+                    if (clickedAnnotation) {
+                        navigateToCell(clickedAnnotation.cellAddress);
+                    }
+                }
+
                 function findAnnotationByCellAddress(address) { for (const pdf of pdfCollection) { if (pdf.annotations) { for (const pageNum in pdf.annotations) { const foundAnnotation = pdf.annotations[pageNum].find(annotation => annotation.cellAddress === address); if (foundAnnotation) { return { pdfId: pdf.id, pageNum: parseInt(pageNum, 10), annotation: foundAnnotation }; } } } } return null; }
                 function scrollToPage(pageNum) { const pageContainers = document.querySelectorAll('.page-container'); const targetPage = pageContainers[pageNum - 1]; if (targetPage) { targetPage.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }
 
