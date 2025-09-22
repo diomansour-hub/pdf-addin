@@ -181,7 +181,7 @@
 
                 // --- OCR & PDF HANDLING ---
 
-                // *** BIJGEWERKT: Gebruikt nu lokale paden voor Tesseract worker en taalmodel ***
+                // *** BIJGEWERKT: Gebruikt nu de correcte "raw" GitHub URL's ***
                 async function handleFileWithOcr(event) {
                     if (event.target.files.length === 0) return;
                     const selectedFile = event.target.files[0];
@@ -204,13 +204,14 @@
                     try {
                         updateStatus('Tesseract worker aanmaken...', 'info', true);
                         
-                        // --- START AANPASSING VOOR LOKALE BESTANDEN ---
-                        // Aanname: worker.min.js en nld.traineddata.gz staan in dezelfde map als dit html-bestand.
-                        const workerPath = 'worker.min.js';
-                        const langPath = './'; // De huidige map
+                        // --- START AANPASSING VOOR GITHUB URL'S ---
+                        // Dit zijn de correcte, directe links naar de bestanden op GitHub.
+                        const workerPath = 'https://raw.githubusercontent.com/diomansour-hub/pdf-addin/main/worker.min.js';
+                        const langPath = 'https://raw.githubusercontent.com/diomansour-hub/pdf-addin/main/'; // Pad naar de map
 
                         const workerPromise = Tesseract.createWorker(workerPath, 1, { // Het tweede argument '1' is voor de taal
                             langPath: langPath,
+                            gzip: false, // Belangrijk voor GitHub raw links
                             logger: m => {
                                 const pageContext = numPages > 0 ? ` (totaal ${numPages} pag.)` : '';
                                 if (m.status === 'recognizing text') {
@@ -762,4 +763,5 @@
     </script>
 </body>
 </html>
+
 
