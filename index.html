@@ -58,7 +58,7 @@
                 <button id="reject-button" disabled class="bg-gray-300 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors flex-grow">Afkeuren</button>
                 <button id="textsnip-button" disabled class="bg-gray-300 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors flex-grow">Textsnip</button>
             </div>
-            <!-- Search controls - NEW -->
+            <!-- Search controls -->
             <div id="search-container" class="hidden">
                  <div class="flex items-center space-x-2">
                     <input type="text" id="search-input" placeholder="Zoek in PDF..." class="flex-grow p-2 border border-gray-300 rounded-md text-sm">
@@ -69,7 +69,7 @@
                         <button id="search-prev-button" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm font-medium"><</button>
                         <button id="search-next-button" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm font-medium">></button>
                     </div>
-                    <span id="search-status" class="text-xs text-gray-600">Geen resultaten</span>
+                    <span id="search-status" class="text-xs text-gray-600"></span>
                 </div>
             </div>
             <div class="text-xs text-gray-600 bg-gray-100 p-2 rounded-md">
@@ -123,7 +123,6 @@
                 const manualTextInput = document.getElementById('manual-text-input');
                 const saveManualTextButton = document.getElementById('save-manual-text');
                 const cancelManualTextButton = document.getElementById('cancel-manual-text');
-                // New Search UI Elements
                 const searchContainer = document.getElementById('search-container');
                 const searchInput = document.getElementById('search-input');
                 const searchClearButton = document.getElementById('search-clear-button');
@@ -138,12 +137,11 @@
                 let activeCellAddress = null;
                 let isDrawing = false;
                 let startCoords = { x: 0, y: 0 };
-                let currentDrawingType = null; // Can be 'approve', 'reject', or 'textsnip'
-                let tempAnnotationData = null; // To hold data for manual input
-                // New Search State
+                let currentDrawingType = null;
+                let tempAnnotationData = null;
                 let searchResults = [];
                 let currentSearchResultIndex = -1;
-                let pdfDoc = null; // cache the loaded pdf document object
+                let pdfDoc = null;
 
 
                 // --- Event Listeners ---
@@ -156,14 +154,10 @@
                 textsnipButton.addEventListener('click', () => toggleDrawMode('textsnip'));
                 saveManualTextButton.addEventListener('click', handleSaveManualText);
                 cancelManualTextButton.addEventListener('click', closeManualTextModal);
-                // New Search Event Listeners
                 searchInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') performSearch(); });
                 searchClearButton.addEventListener('click', clearSearch);
                 searchPrevButton.addEventListener('click', () => navigateSearchResults('prev'));
                 searchNextButton.addEventListener('click', () => navigateSearchResults('next'));
-
-
-                // Listen for selection changes in the Excel document
                 Office.context.document.addHandlerAsync(Office.EventType.DocumentSelectionChanged, onSelectionChange);
 
 
@@ -173,7 +167,7 @@
                     const collectionJson = Office.context.document.settings.get('pdfCollection');
                     pdfCollection = collectionJson ? JSON.parse(collectionJson) : [];
                     updatePdfSwitcher();
-                    onSelectionChange(); // Get the current selection immediately
+                    onSelectionChange();
 
                     if (pdfCollection.length > 0) {
                         loadPdf(pdfCollection[0].id);
@@ -229,13 +223,12 @@
                     const endX = e.clientX - rect.left;
                     const endY = e.clientY - rect.top;
 
-                    // Ensure width and height are positive
                     const x = Math.min(startCoords.x, endX);
                     const y = Math.min(startCoords.y, endY);
                     const w = Math.abs(endX - startCoords.x);
                     const h = Math.abs(endY - startCoords.y);
 
-                    if (w < 5 || h < 5) { // Ignore tiny accidental drags
+                    if (w < 5 || h < 5) {
                         redrawAllAnnotations();
                         return;
                     }
@@ -247,10 +240,9 @@
                         if (extractedText) {
                             await formatLinkedCell(activeCellAddress, currentDrawingType, extractedText);
                         } else {
-                            // No text found, open modal for manual input
                             tempAnnotationData = { pageNum, annotation: newAnnotation };
                             openManualTextModal();
-                            return; // Stop here, saving will be handled by the modal
+                            return;
                         }
                     } else {
                         await formatLinkedCell(activeCellAddress, currentDrawingType);
@@ -316,7 +308,6 @@
                             if (rect.type === 'textsnip') color = '#2196F3';
                             ctx.strokeStyle = color;
                             ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-                            // Set fill style with transparency
                             let fillColor = 'rgba(128, 128, 128, 0.3)';
                             if (rect.type === 'approve') fillColor = 'rgba(76, 175, 80, 0.3)';
                             if (rect.type === 'reject') fillColor = 'rgba(244, 67, 54, 0.3)';
@@ -341,7 +332,7 @@
                     pdfViewer.innerHTML = '';
                     try {
                         const loadingTask = pdfjsLib.getDocument({ data });
-                        pdfDoc = await loadingTask.promise; // Store the pdf document object
+                        pdfDoc = await loadingTask.promise;
                         
                         for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
                             const page = await pdfDoc.getPage(pageNum);
@@ -352,16 +343,15 @@
                             pageContainer.style.width = `${viewport.width}px`;
                             pageContainer.style.height = `${viewport.height}px`;
 
-                            const pdfCanvas = document.createElement('canvas'); // Base PDF layer
+                            const pdfCanvas = document.createElement('canvas');
                             pdfCanvas.className = 'pdf-canvas';
                             
-                            const highlightCanvas = document.createElement('canvas'); // New layer for search highlights
+                            const highlightCanvas = document.createElement('canvas');
                             highlightCanvas.className = 'highlight-canvas';
                             
-                            const annotationCanvas = document.createElement('canvas'); // Top layer for user drawings
+                            const annotationCanvas = document.createElement('canvas');
                             annotationCanvas.className = 'annotation-canvas';
                             
-                            // Set dimensions for all canvases
                             [pdfCanvas, highlightCanvas, annotationCanvas].forEach(canvas => {
                                 canvas.width = viewport.width;
                                 canvas.height = viewport.height;
@@ -372,10 +362,8 @@
                             
                             await page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: viewport }).promise;
                             
-                            // Draw existing annotations
                             drawAnnotations(pageNum, annotationCanvas, annotations);
 
-                            // Add event listeners to the top annotation canvas
                             annotationCanvas.addEventListener('mousedown', (e) => handleMouseDown(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mousemove', (e) => handleMouseMove(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mouseup', (e) => handleMouseUp(e, pageNum, page));
@@ -388,7 +376,7 @@
                     }
                 }
 
-                // --- SEARCH FUNCTIONS (NEW) ---
+                // --- SEARCH FUNCTIONS ---
 
                 async function performSearch() {
                     const query = searchInput.value.trim().toLowerCase();
@@ -399,7 +387,10 @@
                     }
                     if (!pdfDoc) return;
 
-                    showLoader(`Zoeken naar '${query}'...`);
+                    // CORRECTED: This now updates the search status without clearing the PDF viewer.
+                    searchStatus.textContent = `Zoeken naar '${query}'...`;
+                    await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI to update.
+                    
                     searchResults = [];
                     
                     for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -412,7 +403,7 @@
                                 const rect = {
                                     pageNum: i,
                                     x: item.transform[4],
-                                    y: viewport.height - item.transform[5] - item.height, // Adjust for top-left origin
+                                    y: viewport.height - item.transform[5] - item.height,
                                     w: item.width,
                                     h: item.height
                                 };
@@ -420,8 +411,6 @@
                             }
                         });
                     }
-                    
-                    statusMessage.classList.add('hidden'); // Hide loader
                     
                     if (searchResults.length > 0) {
                         currentSearchResultIndex = 0;
@@ -452,7 +441,7 @@
                     const highlightCanvas = document.querySelectorAll('.highlight-canvas')[result.pageNum - 1];
                     const ctx = highlightCanvas.getContext('2d');
                     
-                    ctx.fillStyle = 'rgba(255, 255, 0, 0.4)'; // Yellow highlight
+                    ctx.fillStyle = 'rgba(255, 255, 0, 0.4)';
                     ctx.fillRect(result.x, result.y, result.w, result.h);
                     
                     scrollToPage(result.pageNum);
@@ -545,7 +534,7 @@
 
                 async function loadPdf(pdfId) {
                     activePdfId = pdfId;
-                    clearSearch(); // Clear search results when loading a new PDF
+                    clearSearch();
                     const pdfObject = pdfCollection.find(p => p.id === pdfId);
                     if (!pdfObject) { initializeApp(); return; }
                     showLoader(`'${pdfObject.name}' laden...`);
@@ -564,7 +553,7 @@
                 
                 function toggleDrawMode(type) {
                     if (currentDrawingType === type) {
-                        currentDrawingType = null; // Turn off if clicking the same button
+                        currentDrawingType = null;
                     } else {
                         currentDrawingType = type;
                     }
@@ -610,7 +599,7 @@
                     const clickedAnnotation = findAnnotationAtCoords(e, pageNum);
                     if (clickedAnnotation) {
                         if(currentDrawingType) {
-                            toggleDrawMode(currentDrawingType); // Disable draw mode
+                            toggleDrawMode(currentDrawingType);
                         }
                         navigateToCell(clickedAnnotation.cellAddress);
                     }
@@ -649,7 +638,7 @@
                 function closeManualTextModal() {
                     manualTextModal.classList.add('hidden');
                     tempAnnotationData = null;
-                    redrawAllAnnotations(); // Redraw to remove temporary drawing rectangle
+                    redrawAllAnnotations();
                 }
 
                 async function handleSaveManualText() {
@@ -668,3 +657,4 @@
     </script>
 </body>
 </html>
+
