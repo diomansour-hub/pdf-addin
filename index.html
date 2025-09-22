@@ -181,7 +181,7 @@
 
                 // --- OCR & PDF HANDLING ---
 
-                // *** BIJGEWERKT: Functie toont nu paginatelling en betere voortgang ***
+                // *** BIJGEWERKT: Duidelijkere voortgang en betere foutafhandeling voor OCR ***
                 async function handleFileWithOcr(event) {
                     if (event.target.files.length === 0) return;
                     const selectedFile = event.target.files[0];
@@ -189,7 +189,6 @@
 
                     showLoader(`PDF analyseren...`);
 
-                    // Stap 1: Krijg het aantal pagina's met PDF.js voor context
                     let numPages = 0;
                     try {
                         const fileData = await selectedFile.arrayBuffer();
@@ -203,6 +202,7 @@
 
                     let worker;
                     try {
+                        updateStatus('Tesseract worker aanmaken...', 'info', true);
                         worker = await Tesseract.createWorker({
                             logger: m => {
                                 const pageContext = numPages > 0 ? ` (totaal ${numPages} pag.)` : '';
@@ -210,7 +210,6 @@
                                     const progress = (m.progress * 100).toFixed(0);
                                     statusText.textContent = `Tekstherkenning${pageContext}: ${progress}%`;
                                 } else {
-                                     // Vertaal enkele statussen voor een betere gebruikerservaring
                                     let statusNL = m.status;
                                     switch(m.status) {
                                         case 'loading language model': statusNL = 'taalmodel laden'; break;
@@ -223,11 +222,16 @@
                                 }
                             }
                         });
-
+                        
+                        updateStatus('Taalmodel laden (nld)...', 'info', true);
                         await worker.loadLanguage('nld');
+
+                        updateStatus('Worker initialiseren...', 'info', true);
                         await worker.initialize('nld');
+
                         await worker.setParameters({ tesedit_create_pdf: '1' });
                         
+                        updateStatus('Tekstherkenning starten...', 'info', true);
                         const { data } = await worker.recognize(selectedFile);
                         
                         updateStatus('Verwerkte PDF opslaan...', 'info', true);
@@ -239,7 +243,8 @@
 
                     } catch (error) {
                         console.error("OCR process failed:", error);
-                        updateStatus('Fout tijdens OCR-proces. Is de PDF geldig?', 'error');
+                        // Geef een meer gedetailleerde foutmelding aan de gebruiker
+                        updateStatus(`Fout bij OCR: ${error.message || 'Onbekende fout'}. Controleer de internetverbinding.`, 'error');
                     } finally {
                         if (worker) {
                             await worker.terminate();
@@ -734,4 +739,5 @@
     </script>
 </body>
 </html>
+
 
