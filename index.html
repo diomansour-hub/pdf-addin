@@ -1,421 +1,302 @@
-<script type="text/javascript">
-    // Set the worker source for PDF.js
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Beheerder</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Office.js: The Microsoft Office JavaScript API library -->
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
+    
+    <!-- PDF.js: Library to render PDF documents in the browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    
+    <style>
+        /* ... (styles blijven ongewijzigd) ... */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .draw-mode-active { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); background-color: #1d4ed8; }
+        .page-container { position: relative; margin: 0.5rem auto; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+        .annotation-canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div id="app" class="p-4 flex flex-col h-screen">
+        <header class="mb-4">
+            <h1 class="text-xl font-bold text-gray-800">PDF Beheerder</h1>
+            <p class="text-sm text-gray-600">Voeg PDF's toe, beheer en annoteer documenten.</p>
+        </header>
 
-    Office.onReady((info) => {
-        if (info.host === Office.HostType.Excel) {
-            // --- UI Elements ---
-            const approveButton = document.getElementById('approve-button');
-            const rejectButton = document.getElementById('reject-button');
-            const textsnipButton = document.getElementById('textsnip-button');
-            const activeCellAddressLabel = document.getElementById('active-cell-address');
-            const fileInput = document.getElementById('pdf-file-input');
-            const exportButton = document.getElementById('export-pdf-button');
-            const deleteButton = document.getElementById('delete-pdf-button');
-            const pdfSwitcher = document.getElementById('pdf-switcher');
-            const selectedFileNameLabel = document.getElementById('selected-file-name');
-            const pdfViewer = document.getElementById('pdf-viewer');
-            const statusMessage = document.getElementById('status-message');
-            const statusText = document.getElementById('status-text');
-            const loader = document.getElementById('loader');
-            const manualTextModal = document.getElementById('manual-text-modal');
-            const manualTextInput = document.getElementById('manual-text-input');
-            const manualSaveButton = document.getElementById('manual-save-button');
-            const manualCancelButton = document.getElementById('manual-cancel-button');
+        <!-- GEWIJZIGD: Controls voor het beheren van meerdere PDF's -->
+        <div class="controls bg-white p-3 rounded-lg shadow-sm border border-gray-200 mb-4 space-y-3">
+            <div class="flex items-center space-x-2">
+                <label for="pdf-file-input" class="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium">
+                    Voeg PDF toe
+                </label>
+                <input type="file" id="pdf-file-input" accept=".pdf" class="hidden">
+                <p id="selected-file-name" class="text-xs text-gray-500 truncate flex-grow">Geen nieuw bestand geselecteerd.</p>
+            </div>
+            <div class="flex items-center space-x-2">
+                <select id="pdf-switcher" class="flex-grow p-2 border border-gray-300 rounded-md text-sm">
+                    <option>Geen documenten geladen</option>
+                </select>
+                <button id="export-pdf-button" disabled class="bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Exporteer</button>
+                <button id="draw-mode-button" disabled class="bg-gray-300 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Teken Modus</button>
+                <button id="delete-pdf-button" disabled class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">Verwijder</button>
+            </div>
+        </div>
 
-            // --- Application State ---
-            let pdfCollection = [];
-            let activePdfId = null;
-            let activeCellAddress = null;
-            let currentDrawMode = null;
-            let isDrawing = false;
-            let startCoords = { x: 0, y: 0 };
-            let currentPdfDocument = null;
-            let manualInputState = null; // Opslag voor handmatige invoer data
+        <main class="flex-grow bg-white rounded-lg shadow-sm border border-gray-200 overflow-y-auto p-2">
+            <div id="status-message" class="h-full flex flex-col items-center justify-center text-gray-500">
+                <div id="loader" class="loader hidden mb-2"></div>
+                <span id="status-text">Voeg een PDF toe om te beginnen.</span>
+            </div>
+            <div id="pdf-viewer" class="space-y-2"></div>
+        </main>
+    </div>
 
-            // --- Event Listeners ---
-            fileInput.addEventListener('change', handleFileSelectAndSave);
-            pdfSwitcher.addEventListener('change', switchActivePdf);
-            exportButton.addEventListener('click', exportPdfFromSettings);
-            approveButton.addEventListener('click', () => setDrawMode('approved'));
-            rejectButton.addEventListener('click', () => setDrawMode('rejected'));
-            textsnipButton.addEventListener('click', () => setDrawMode('textsnip'));
-            deleteButton.addEventListener('click', deleteCurrentPdf);
-            manualSaveButton.addEventListener('click', handleManualSave);
-            manualCancelButton.addEventListener('click', handleManualCancel);
-            Office.context.document.addHandlerAsync(Office.EventType.DocumentSelectionChanged, onSelectionChange);
+    <script type="text/javascript">
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
-            // --- CORE FUNCTIONS ---
-            function initializeApp() {
-                const collectionJson = Office.context.document.settings.get('pdfCollection');
-                pdfCollection = collectionJson ? JSON.parse(collectionJson) : [];
-                updatePdfSwitcher();
-                onSelectionChange(); // Roep dit aan om de huidige selectie te krijgen
-                if (pdfCollection.length > 0 && !activePdfId) {
-                    loadPdf(pdfCollection[0].id);
-                } else if (pdfCollection.length === 0) {
-                    updateStatus('Voeg een PDF toe om te beginnen.', 'info');
-                    setButtonsState(false);
+        Office.onReady((info) => {
+            if (info.host === Office.HostType.Excel) {
+                // --- UI Elementen ---
+                const fileInput = document.getElementById('pdf-file-input');
+                const exportButton = document.getElementById('export-pdf-button');
+                const drawModeButton = document.getElementById('draw-mode-button');
+                const deleteButton = document.getElementById('delete-pdf-button');
+                const pdfSwitcher = document.getElementById('pdf-switcher');
+                const selectedFileNameLabel = document.getElementById('selected-file-name');
+                const pdfViewer = document.getElementById('pdf-viewer');
+                const statusMessage = document.getElementById('status-message');
+                const statusText = document.getElementById('status-text');
+                const loader = document.getElementById('loader');
+
+                // --- Applicatie State ---
+                let pdfCollection = [];
+                let activePdfId = null;
+                let isDrawingMode = false;
+                let isDrawing = false;
+                let startCoords = { x: 0, y: 0 };
+
+                // --- Event Listeners ---
+                fileInput.addEventListener('change', handleFileSelectAndSave);
+                pdfSwitcher.addEventListener('change', switchActivePdf);
+                exportButton.addEventListener('click', exportPdfFromSettings);
+                drawModeButton.addEventListener('click', toggleDrawMode);
+                deleteButton.addEventListener('click', deleteCurrentPdf);
+
+                // --- KERNFUNCTIES (volledig herschreven) ---
+
+                function initializeApp() {
+                    const collectionJson = Office.context.document.settings.get('pdfCollection');
+                    pdfCollection = collectionJson ? JSON.parse(collectionJson) : [];
+                    updatePdfSwitcher();
+
+                    if (pdfCollection.length > 0) {
+                        loadPdf(pdfCollection[0].id);
+                    } else {
+                        updateStatus('Voeg een PDF toe om te beginnen.', 'info');
+                        setButtonsState(false);
+                    }
                 }
-            }
 
-            async function onSelectionChange() {
-                try {
-                    await Excel.run(async (context) => {
-                        const range = context.workbook.getSelectedRange();
-                        range.load("address");
-                        await context.sync();
-
-                        const previousCellAddress = activeCellAddress;
-                        activeCellAddress = range.address;
-                        activeCellAddressLabel.textContent = activeCellAddress || 'Geen';
-
-                        // Alleen actie ondernemen als de cel daadwerkelijk is veranderd.
-                        if (activeCellAddress !== previousCellAddress) {
-                            const annotationLocation = findAnnotationByCellAddress(activeCellAddress);
-                            if (annotationLocation) {
-                                // Als de annotatie in een andere PDF is, laad die PDF
-                                if (annotationLocation.pdfId !== activePdfId) {
-                                    await loadPdf(annotationLocation.pdfId);
-                                    // De annotaties worden al opnieuw getekend door loadPdf, maar we scrollen naar de juiste pagina
-                                    scrollToPage(annotationLocation.pageNum);
-                                } else {
-                                    // Als het in de huidige PDF is, teken gewoon opnieuw om te highlighten en te scrollen
-                                    redrawAllAnnotations();
-                                    scrollToPage(annotationLocation.pageNum);
-                                }
-                            } else {
-                                // Als er geen annotatie is voor deze cel, teken de huidige PDF opnieuw zonder highlight
-                                redrawAllAnnotations();
-                            }
-                        }
-                    });
-                } catch (error) {
-                    console.error("Error getting selection: " + error);
+                function handleFileSelectAndSave(event) {
+                    if (event.target.files.length === 0) return;
+                    const selectedFile = event.target.files[0];
+                    selectedFileNameLabel.textContent = `Nieuw: ${selectedFile.name}`;
+                    showLoader(`'${selectedFile.name}' wordt toegevoegd...`);
+                    
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const newPdf = {
+                            id: crypto.randomUUID(),
+                            name: selectedFile.name,
+                            data: arrayBufferToBase64(e.target.result),
+                            annotations: {}
+                        };
+                        pdfCollection.push(newPdf);
+                        saveCollectionToSettings(() => {
+                            updateStatus(`'${selectedFile.name}' succesvol toegevoegd.`, 'success');
+                            updatePdfSwitcher();
+                            loadPdf(newPdf.id);
+                            fileInput.value = ''; // Reset file input
+                            selectedFileNameLabel.textContent = 'Geen nieuw bestand geselecteerd.';
+                        });
+                    };
+                    reader.readAsArrayBuffer(selectedFile);
                 }
-            }
 
+                function switchActivePdf() {
+                    const selectedId = pdfSwitcher.value;
+                    if (selectedId) {
+                        loadPdf(selectedId);
+                    }
+                }
 
-            // --- MOUSE & ANNOTATION FUNCTIONS ---
-
-            function handleMouseDown(e, pageNum, canvas) {
-                // Voorkom tekenen als er op een bestaande annotatie wordt geklikt
-                const pdfObject = pdfCollection.find(p => p.id === activePdfId);
-                if (pdfObject && pdfObject.annotations && pdfObject.annotations[pageNum]) {
-                    const rect = canvas.getBoundingClientRect();
-                    const clickX = e.clientX - rect.left;
-                    const clickY = e.clientY - rect.top;
-                    const clickedAnnotation = [...pdfObject.annotations[pageNum]].reverse().find(anno =>
-                        clickX >= anno.x && clickX <= anno.x + anno.w && clickY >= anno.y && clickY <= anno.y + anno.h
-                    );
-                    if (clickedAnnotation) {
-                        isDrawing = false; // Zet drawing uit om te voorkomen dat er een nieuwe rechthoek wordt getekend
+                function loadPdf(pdfId) {
+                    activePdfId = pdfId;
+                    const pdfObject = pdfCollection.find(p => p.id === pdfId);
+                    if (!pdfObject) {
+                        initializeApp(); // Fallback if ID is not found
                         return;
                     }
-                }
-                
-                if (!currentDrawMode) return;
-                isDrawing = true;
-                const canvasRect = canvas.getBoundingClientRect();
-                startCoords.x = e.clientX - canvasRect.left;
-                startCoords.y = e.clientY - canvasRect.top;
-            }
-
-            function handleMouseMove(e, pageNum, canvas) {
-                if (!isDrawing || !currentDrawMode) return;
-                const pdfObject = pdfCollection.find(p => p.id === activePdfId);
-                if (!pdfObject) return;
-                
-                redrawAllAnnotations(); // Wis de vorige tijdelijke rechthoek
-
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-
-                const width = mouseX - startCoords.x;
-                const height = mouseY - startCoords.y;
-
-                // Teken de nieuwe tijdelijke rechthoek direct op de canvas
-                const ctx = canvas.getContext('2d');
-                if (currentDrawMode === 'approved') ctx.strokeStyle = 'green';
-                else if (currentDrawMode === 'rejected') ctx.strokeStyle = 'red';
-                else ctx.strokeStyle = '#1d4ed8';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(startCoords.x, startCoords.y, width, height);
-            }
-
-            async function handleMouseUp(e, pageNum) {
-                if (!isDrawing || !currentDrawMode || !activePdfId || !activeCellAddress) return;
-                isDrawing = false;
-
-                const canvas = document.querySelectorAll('.annotation-canvas')[pageNum - 1];
-                const rect = canvas.getBoundingClientRect();
-                const endX = e.clientX - rect.left;
-                const endY = e.clientY - rect.top;
-                
-                const width = endX - startCoords.x;
-                const height = endY - startCoords.y;
-
-                // Annuleer als de getekende rechthoek te klein is
-                if (Math.abs(width) < 5 && Math.abs(height) < 5) {
-                    redrawAllAnnotations();
-                    return;
-                }
-
-                const userRect = { x: startCoords.x, y: startCoords.y, w: width, h: height };
-
-                if (currentDrawMode === 'textsnip') {
-                    const extractedText = await extractTextFromArea(pageNum, userRect);
-                    if (!extractedText || extractedText.trim() === '') {
-                        // Geen tekst gevonden, toon de modal voor handmatige invoer
-                        showManualTextInputModal(activeCellAddress, userRect, pageNum);
-                        return; // Stop hier; de modal handelt de opslag af
-                    }
-                    formatLinkedCell(activeCellAddress, 'textsnip', extractedText);
-                } else {
-                    formatLinkedCell(activeCellAddress, currentDrawMode);
-                }
-                
-                saveAnnotation(pageNum, userRect, currentDrawMode);
-            }
-
-            function handleClickOnCanvas(e, pageNum, canvas) {
-                const pdfObject = pdfCollection.find(p => p.id === activePdfId);
-                if (!pdfObject || !pdfObject.annotations || !pdfObject.annotations[pageNum]) return;
-
-                const rect = canvas.getBoundingClientRect();
-                const clickX = e.clientX - rect.left;
-                const clickY = e.clientY - rect.top;
-
-                // Vind de bovenste annotatie waarop geklikt is (door de array om te keren)
-                const clickedAnnotation = [...pdfObject.annotations[pageNum]].reverse().find(anno =>
-                    clickX >= anno.x && clickX <= anno.x + anno.w &&
-                    clickY >= anno.y && clickY <= anno.y + anno.h
-                );
-
-                if (clickedAnnotation) {
-                    if (currentDrawMode) {
-                        setDrawMode(null); // Deactiveer de tekenmodus
-                    }
-                    navigateToCell(clickedAnnotation.cellAddress);
-                }
-            }
-
-
-            // --- RENDERING & DRAWING FUNCTIONS ---
-
-            async function renderPdf(data, annotations) {
-                pdfViewer.innerHTML = '';
-                try {
-                    const pdf = await pdfjsLib.getDocument({ data }).promise;
-                    currentPdfDocument = pdf;
-                    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                        const page = await pdf.getPage(pageNum);
-                        const viewport = page.getViewport({ scale: 1.5 });
-
-                        const pageContainer = document.createElement('div');
-                        pageContainer.className = 'page-container';
-                        pageContainer.style.width = `${viewport.width}px`;
-                        pageContainer.style.height = `${viewport.height}px`;
-
-                        const pdfCanvas = document.createElement('canvas');
-                        pdfCanvas.width = viewport.width;
-                        pdfCanvas.height = viewport.height;
-
-                        const annotationCanvas = document.createElement('canvas');
-                        annotationCanvas.className = 'annotation-canvas';
-                        annotationCanvas.width = viewport.width;
-                        annotationCanvas.height = viewport.height;
-
-                        pageContainer.append(pdfCanvas, annotationCanvas);
-                        pdfViewer.appendChild(pageContainer);
-
-                        await page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: viewport }).promise;
-                        drawAnnotations(pageNum, annotationCanvas, annotations);
-
-                        // Event listeners toevoegen
-                        annotationCanvas.addEventListener('mousedown', (e) => handleMouseDown(e, pageNum, annotationCanvas));
-                        annotationCanvas.addEventListener('mousemove', (e) => handleMouseMove(e, pageNum, annotationCanvas));
-                        annotationCanvas.addEventListener('mouseup', (e) => handleMouseUp(e, pageNum));
-                        annotationCanvas.addEventListener('mouseout', (e) => { if(isDrawing) handleMouseUp(e, pageNum); }); // Behandel als mouse-up als de muis het canvas verlaat
-                        annotationCanvas.addEventListener('click', (e) => handleClickOnCanvas(e, pageNum, annotationCanvas));
-                    }
-                    statusMessage.classList.add('hidden');
-                } catch (error) {
-                    updateStatus('Fout bij weergeven PDF: ' + error.message, 'error');
-                }
-            }
-            
-            function drawAnnotations(pageNum, canvas, annotations) {
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height); // Maak canvas schoon
-                if (annotations && annotations[pageNum]) {
-                    annotations[pageNum].forEach(rect => {
-                        const isHighlighted = activeCellAddress && rect.cellAddress === activeCellAddress;
-                        let fillStyle, strokeStyle;
-
-                        if (rect.type === 'approved') {
-                            fillStyle = 'rgba(34, 197, 94, 0.3)';
-                            strokeStyle = '#15803d';
-                        } else if (rect.type === 'rejected') {
-                            fillStyle = 'rgba(239, 68, 68, 0.3)';
-                            strokeStyle = '#b91c1c';
-                        } else { // textsnip
-                            fillStyle = 'rgba(59, 130, 246, 0.3)';
-                            strokeStyle = '#1d4ed8';
-                        }
-                        
-                        ctx.fillStyle = fillStyle;
-                        ctx.strokeStyle = isHighlighted ? '#0078D4' : strokeStyle; // Highlight kleur
-                        ctx.lineWidth = isHighlighted ? 4 : 2;
-
-                        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-                        ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-                    });
-                }
-            }
-            
-            function redrawAllAnnotations() {
-                const pdfObject = pdfCollection.find(p => p.id === activePdfId);
-                if (!pdfObject) return;
-                const annotationCanvases = document.querySelectorAll('.annotation-canvas');
-                annotationCanvases.forEach((canvas, index) => {
-                    const pageNum = index + 1;
-                    drawAnnotations(pageNum, canvas, pdfObject.annotations);
-                });
-            }
-
-
-            // --- DATA HANDLING & EXCEL INTERACTION ---
-
-            function saveAnnotation(pageNum, userRect, type) {
-                const pdfObject = pdfCollection.find(p => p.id === activePdfId);
-                if (!pdfObject) return;
-
-                // Normaliseer de rechthoek zodat de breedte en hoogte altijd positief zijn.
-                // Dit is belangrijk voor consistente weergave, ongeacht de tekenrichting.
-                const normalizedRect = {
-                    x: userRect.w < 0 ? userRect.x + userRect.w : userRect.x,
-                    y: userRect.h < 0 ? userRect.y + userRect.h : userRect.y,
-                    w: Math.abs(userRect.w),
-                    h: Math.abs(userRect.h)
-                };
-
-                if (!pdfObject.annotations[pageNum]) {
-                    pdfObject.annotations[pageNum] = [];
-                }
-                pdfObject.annotations[pageNum].push({
-                    ...normalizedRect,
-                    cellAddress: activeCellAddress,
-                    type: type
-                });
-                
-                // Sla de data op en teken de canvas opnieuw om de nieuwe annotatie te tonen.
-                saveCollectionToSettings(redrawAllAnnotations);
-            }
-
-            async function formatLinkedCell(address, type, text = "") {
-                try {
-                    await Excel.run(async (context) => {
-                        const range = context.workbook.worksheets.getActiveWorksheet().getRange(address);
-                        if (type === 'approved') {
-                            range.format.fill.color = "#D9EAD3";
-                            range.values = [["✓"]];
-                            range.format.font.color = "#38761D";
-                            range.format.font.bold = true;
-                            range.format.horizontalAlignment = "Center";
-                        } else if (type === 'rejected') {
-                            range.format.fill.color = "#F4CCCC";
-                            range.values = [["X"]];
-                            range.format.font.color = "#990000";
-                            range.format.font.bold = true;
-                            range.format.horizontalAlignment = "Center";
-                        } else if (type === 'textsnip') {
-                            range.format.fill.color = "#CFE2F3";
-                            range.values = [[text]];
-                            range.format.font.color = "#0B5394";
-                            range.format.font.bold = false;
-                            range.format.horizontalAlignment = "Left";
-                        }
-                        await context.sync();
-                    });
-                } catch (error) {
-                    console.error("Error formatting cell: " + error);
-                }
-            }
-            
-            async function extractTextFromArea(pageNum, canvasRect) {
-                if (!currentPdfDocument) return '';
-                try {
-                    const page = await currentPdfDocument.getPage(pageNum);
-                    const viewport = page.getViewport({ scale: 1.5 });
-                    const textContent = await page.getTextContent();
                     
-                    // Normaliseer de rechthoek van het canvas
-                    const normX = canvasRect.w < 0 ? canvasRect.x + canvasRect.w : canvasRect.x;
-                    const normY = canvasRect.h < 0 ? canvasRect.y + canvasRect.h : canvasRect.y;
-                    const normW = Math.abs(canvasRect.w);
-                    const normH = Math.abs(canvasRect.h);
-
-                    // Converteer canvas coördinaten naar PDF coördinaten
-                    // De Y-as is omgekeerd in PDF.js
-                    const pdfX1 = normX / viewport.scale;
-                    const pdfY1 = (viewport.height - (normY + normH)) / viewport.scale;
-                    const pdfX2 = (normX + normW) / viewport.scale;
-                    const pdfY2 = (viewport.height - normY) / viewport.scale;
-
-                    const extractedItems = textContent.items.filter(item => {
-                        const x = item.transform[4];
-                        const y = item.transform[5];
-                        // Controleer of het midden van het tekstitem binnen de selectiebox valt
-                        return x >= pdfX1 && x <= pdfX2 && y >= pdfY1 && y <= pdfY2;
-                    });
-                    
-                    return extractedItems.map(item => item.str).join(' ');
-                } catch (error) {
-                    console.error("Error extracting text: ", error);
-                    return '[Fout bij tekstextractie]';
+                    showLoader(`'${pdfObject.name}' laden...`);
+                    updatePdfSwitcher();
+                    const pdfData = base64ToUint8Array(pdfObject.data);
+                    renderPdf(pdfData, pdfObject.annotations);
+                    setButtonsState(true);
                 }
-            }
 
-            async function navigateToCell(fullAddress) {
-                try {
-                    await Excel.run(async (context) => {
-                        let sheetName, rangeAddress;
-                        if (fullAddress.includes('!')) {
-                            const parts = fullAddress.split('!');
-                            sheetName = parts[0].replace(/'/g, ''); // Verwijder quotes
-                            rangeAddress = parts[1];
-                        } else {
-                            // Als er geen sheetnaam is, gebruik de actieve sheet
-                            const activeSheet = context.workbook.worksheets.getActiveWorksheet();
-                            activeSheet.load('name');
-                            await context.sync();
-                            sheetName = activeSheet.name;
-                            rangeAddress = fullAddress;
+                function deleteCurrentPdf() {
+                    if (!activePdfId) return;
+                    const pdfToDelete = pdfCollection.find(p => p.id === activePdfId);
+                    if (confirm(`Weet u zeker dat u '${pdfToDelete.name}' wilt verwijderen?`)) {
+                        pdfCollection = pdfCollection.filter(p => p.id !== activePdfId);
+                        activePdfId = null;
+                        saveCollectionToSettings(() => {
+                           initializeApp();
+                        });
+                    }
+                }
+
+                // --- Hulpfuncties voor UI en State ---
+
+                function updatePdfSwitcher() {
+                    pdfSwitcher.innerHTML = '';
+                    if (pdfCollection.length === 0) {
+                        const option = document.createElement('option');
+                        option.textContent = 'Geen documenten geladen';
+                        pdfSwitcher.appendChild(option);
+                        return;
+                    }
+                    pdfCollection.forEach(pdf => {
+                        const option = document.createElement('option');
+                        option.value = pdf.id;
+                        option.textContent = pdf.name;
+                        pdfSwitcher.appendChild(option);
+                    });
+                    pdfSwitcher.value = activePdfId;
+                }
+                
+                function setButtonsState(enabled) {
+                    exportButton.disabled = !enabled;
+                    drawModeButton.disabled = !enabled;
+                    deleteButton.disabled = !enabled;
+
+                    [exportButton, drawModeButton].forEach(btn => {
+                         btn.classList.toggle('bg-gray-300', !enabled);
+                    });
+                    exportButton.classList.toggle('bg-orange-500', enabled);
+                    drawModeButton.classList.toggle('bg-blue-500', enabled);
+                }
+
+                function saveCollectionToSettings(callback) {
+                    Office.context.document.settings.set('pdfCollection', JSON.stringify(pdfCollection));
+                    Office.context.document.settings.saveAsync(result => {
+                        if (result.status === Office.AsyncResultStatus.Failed) {
+                            updateStatus('Fout bij opslaan: ' + result.error.message, 'error');
+                        } else if (callback) {
+                            callback();
                         }
-                        const sheet = context.workbook.worksheets.getItem(sheetName);
-                        const range = sheet.getRange(rangeAddress);
-                        sheet.activate();
-                        range.select();
-                        await context.sync();
                     });
-                } catch (error) {
-                    console.error(`Error navigating to cell ${fullAddress}:`, error);
-                    updateStatus(`Kon niet navigeren naar ${fullAddress}.`, 'error');
                 }
+                
+                // --- Annotatie & Render Functies (aangepast voor actieve PDF) ---
+
+                async function renderPdf(data, annotations) {
+                    pdfViewer.innerHTML = '';
+                    try {
+                        const pdf = await pdfjsLib.getDocument({ data }).promise;
+                        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                            const page = await pdf.getPage(pageNum);
+                            const viewport = page.getViewport({ scale: 1.5 });
+                            const pageContainer = document.createElement('div');
+                            pageContainer.className = 'page-container';
+                            pageContainer.style.width = `${viewport.width}px`; pageContainer.style.height = `${viewport.height}px`;
+                            const pdfCanvas = document.createElement('canvas');
+                            pdfCanvas.width = viewport.width; pdfCanvas.height = viewport.height;
+                            const annotationCanvas = document.createElement('canvas');
+                            annotationCanvas.className = 'annotation-canvas';
+                            annotationCanvas.width = viewport.width; annotationCanvas.height = viewport.height;
+                            pageContainer.append(pdfCanvas, annotationCanvas);
+                            pdfViewer.appendChild(pageContainer);
+                            await page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: viewport }).promise;
+                            drawAnnotations(pageNum, annotationCanvas, annotations);
+                            annotationCanvas.addEventListener('mousedown', (e) => handleMouseDown(e, pageNum, annotationCanvas));
+                            annotationCanvas.addEventListener('mousemove', (e) => handleMouseMove(e, pageNum, annotationCanvas));
+                            annotationCanvas.addEventListener('mouseup', (e) => handleMouseUp(e, pageNum));
+                            annotationCanvas.addEventListener('mouseout', (e) => handleMouseUp(e, pageNum));
+                        }
+                        statusMessage.classList.add('hidden');
+                    } catch (error) {
+                        updateStatus('Fout bij weergeven PDF: ' + error.message, 'error');
+                    }
+                }
+
+                function drawAnnotations(pageNum, canvas, annotations, currentRect = null) {
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.strokeStyle = 'red'; ctx.lineWidth = 2;
+                    if (annotations && annotations[pageNum]) {
+                        annotations[pageNum].forEach(rect => ctx.strokeRect(rect.x, rect.y, rect.w, rect.h));
+                    }
+                    if (currentRect) {
+                        ctx.strokeRect(currentRect.x, currentRect.y, currentRect.w, currentRect.h);
+                    }
+                }
+                
+                function handleMouseUp(e, pageNum) {
+                    if (!isDrawing || !isDrawingMode || !activePdfId) return;
+                    isDrawing = false;
+                    const pdfObject = pdfCollection.find(p => p.id === activePdfId);
+                    if (!pdfObject) return;
+
+                    const canvas = document.querySelectorAll('.annotation-canvas')[pageNum - 1];
+                    const rect = canvas.getBoundingClientRect();
+                    const endX = e.clientX - rect.left;
+                    const endY = e.clientY - rect.top;
+
+                    if (!pdfObject.annotations[pageNum]) {
+                        pdfObject.annotations[pageNum] = [];
+                    }
+                    pdfObject.annotations[pageNum].push({ x: startCoords.x, y: startCoords.y, w: endX - startCoords.x, h: endY - startCoords.y });
+                    saveCollectionToSettings();
+                }
+
+                function handleMouseMove(e, pageNum, canvas) {
+                    if (!isDrawing || !isDrawingMode) return;
+                    const pdfObject = pdfCollection.find(p => p.id === activePdfId);
+                    if (!pdfObject) return;
+                    const rect = canvas.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    drawAnnotations(pageNum, canvas, pdfObject.annotations, { x: startCoords.x, y: startCoords.y, w: mouseX - startCoords.x, h: mouseY - startCoords.y });
+                }
+
+                function toggleDrawMode() { /* ... (ongewijzigd) ... */ }
+                function exportPdfFromSettings() { /* ... (aangepast om actieve PDF te gebruiken) ... */ }
+                function handleMouseDown(e, pageNum, canvas) { /* ... (ongewijzigd) ... */ }
+
+                // --- Volledige implementatie van ongewijzigde of licht aangepaste functies ---
+                function toggleDrawMode() { isDrawingMode = !isDrawingMode; drawModeButton.classList.toggle('draw-mode-active', isDrawingMode); pdfViewer.style.cursor = isDrawingMode ? 'crosshair' : 'default'; }
+                function handleMouseDown(e, pageNum, canvas) { if (!isDrawingMode) return; isDrawing = true; const rect = canvas.getBoundingClientRect(); startCoords.x = e.clientX - rect.left; startCoords.y = e.clientY - rect.top; }
+                function exportPdfFromSettings() { if (!activePdfId) return; const pdfObject = pdfCollection.find(p => p.id === activePdfId); if (!pdfObject) return; try { const pdfData = base64ToUint8Array(pdfObject.data); const blob = new Blob([pdfData], { type: 'application/pdf' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = pdfObject.name; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href); } catch (error) { updateStatus('Fout tijdens exporteren: ' + error.message, 'error'); } }
+                function arrayBufferToBase64(buffer) { let binary = ''; const bytes = new Uint8Array(buffer); const len = bytes.byteLength; for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); } return window.btoa(binary); }
+                function base64ToUint8Array(base64) { const binary_string = window.atob(base64); const len = binary_string.length; const bytes = new Uint8Array(len); for (let i = 0; i < len; i++) { bytes[i] = binary_string.charCodeAt(i); } return bytes; }
+                function showLoader(text) { statusMessage.classList.remove('hidden'); loader.classList.remove('hidden'); statusText.textContent = text; pdfViewer.innerHTML = ''; }
+                function updateStatus(text, type) { statusMessage.classList.remove('hidden'); loader.classList.add('hidden'); statusText.textContent = text; statusText.classList.remove('text-red-500', 'text-green-500', 'text-gray-500'); if (type === 'error') statusText.classList.add('text-red-500'); else if (type === 'success') statusText.classList.add('text-green-500'); else statusText.classList.add('text-gray-500'); }
+                
+                // --- INITIALISATIE ---
+                initializeApp();
             }
+        });
+    </script>
+</body>
+</html>
 
 
-            // --- PDF MANAGEMENT FUNCTIONS ---
-
-            async function loadPdf(pdfId) {
-                activePdfId = pdfId;
-                const pdfObject = pdfCollection.find(p => p.id === pdfId);
-                if (!pdfObject) {
-                    initializeApp(); // Start opnieuw als de PDF niet gevonden wordt
-                    return;
-                }
-                showLoader(`'${pdfObject.name}' laden...`);
-                updatePdfSwitcher();
-                const pdfData = base64ToUint8Array(
