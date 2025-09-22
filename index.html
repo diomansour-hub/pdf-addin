@@ -181,7 +181,7 @@
 
                 // --- OCR & PDF HANDLING ---
 
-                // *** BIJGEWERKT: Duidelijkere voortgang en betere foutafhandeling voor OCR ***
+                // *** BIJGEWERKT: Gebruikt nu lokale paden voor Tesseract worker en taalmodel ***
                 async function handleFileWithOcr(event) {
                     if (event.target.files.length === 0) return;
                     const selectedFile = event.target.files[0];
@@ -203,7 +203,14 @@
                     let worker;
                     try {
                         updateStatus('Tesseract worker aanmaken...', 'info', true);
-                        worker = await Tesseract.createWorker({
+                        
+                        // --- START AANPASSING VOOR LOKALE BESTANDEN ---
+                        // Aanname: worker.min.js en nld.traineddata.gz staan in dezelfde map als dit html-bestand.
+                        const workerPath = 'worker.min.js';
+                        const langPath = './'; // De huidige map
+
+                        const workerPromise = Tesseract.createWorker(workerPath, 1, { // Het tweede argument '1' is voor de taal
+                            langPath: langPath,
                             logger: m => {
                                 const pageContext = numPages > 0 ? ` (totaal ${numPages} pag.)` : '';
                                 if (m.status === 'recognizing text') {
@@ -222,6 +229,16 @@
                                 }
                             }
                         });
+                        // --- EINDE AANPASSING ---
+
+
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => {
+                                reject(new Error("Het aanmaken van de OCR-worker duurde te lang (30s timeout)."));
+                            }, 30000); // 30 seconden
+                        });
+
+                        worker = await Promise.race([workerPromise, timeoutPromise]);
                         
                         updateStatus('Taalmodel laden (nld)...', 'info', true);
                         await worker.loadLanguage('nld');
@@ -244,7 +261,13 @@
                     } catch (error) {
                         console.error("OCR process failed:", error);
                         // Geef een meer gedetailleerde foutmelding aan de gebruiker
-                        updateStatus(`Fout bij OCR: ${error.message || 'Onbekende fout'}. Controleer de internetverbinding.`, 'error');
+                        let userMessage = `Fout bij OCR: ${error.message || 'Onbekende fout'}.`;
+                        if (error.message.includes("timeout")) {
+                           userMessage += " Dit wordt meestal veroorzaakt door een netwerkprobleem of een firewall. Controleer de internetverbinding of neem contact op met IT.";
+                        } else {
+                           userMessage += " Controleer of 'worker.min.js' en 'nld.traineddata.gz' in dezelfde map staan als de add-in en bereikbaar zijn.";
+                        }
+                        updateStatus(userMessage, 'error');
                     } finally {
                         if (worker) {
                             await worker.terminate();
@@ -739,5 +762,4 @@
     </script>
 </body>
 </html>
-
 
