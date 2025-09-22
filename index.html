@@ -154,28 +154,42 @@
                 
                 // --- ANNOTATION & RENDERING FUNCTIONS ---
                 
-                // *** AANGEPASTE FUNCTIE: Verwerkt nu ook het nieuwe 'textsnip' type MET handmatige invoer ***
+                // *** BIJGEWERKTE FUNCTIE: Werkt nu correct, onafhankelijk van de sleeprichting ***
                 async function handleMouseUp(e, pageNum) {
                     if (!isDrawing || !currentDrawMode || !activePdfId || !activeCellAddress) return;
                     isDrawing = false;
+
                     const pdfObject = pdfCollection.find(p => p.id === activePdfId);
                     if (!pdfObject) return;
+
                     const canvas = document.querySelectorAll('.annotation-canvas')[pageNum - 1];
                     const rect = canvas.getBoundingClientRect();
                     const endX = e.clientX - rect.left;
                     const endY = e.clientY - rect.top;
+
                     const width = endX - startCoords.x;
                     const height = endY - startCoords.y;
 
+                    // Annuleer als de getekende rechthoek te klein is
                     if (Math.abs(width) < 5 && Math.abs(height) < 5) {
                         redrawAllAnnotations(); 
                         return;
                     }
 
+                    // Dit is de rechthoek die wordt opgeslagen (kan negatieve w/h hebben)
                     const annotationRect = { x: startCoords.x, y: startCoords.y, w: width, h: height };
 
                     if (currentDrawMode === 'textsnip') {
-                        const extractedText = await extractTextFromArea(pageNum, annotationRect);
+                        // --- FIX: Normaliseer de rechthoek voor text extractie ---
+                        // Dit zorgt ervoor dat de linkerbovenhoek altijd x/y is en breedte/hoogte altijd positief zijn.
+                        const normalizedRect = {
+                            x: Math.min(startCoords.x, endX),
+                            y: Math.min(startCoords.y, endY),
+                            w: Math.abs(width),
+                            h: Math.abs(height)
+                        };
+
+                        const extractedText = await extractTextFromArea(pageNum, normalizedRect); // Gebruik de genormaliseerde rechthoek
                         
                         let finalText = extractedText;
 
@@ -311,10 +325,10 @@
                         const textContent = await page.getTextContent();
                         
                         const extractedItems = textContent.items.filter(item => {
-                            // The transform matrix gives the position. [4] is x, [5] is y.
                             const x = item.transform[4];
                             const y = item.transform[5];
                             // Check if the starting position of the text falls within the drawn rectangle.
+                            // This now works correctly because `rect` is normalized.
                             return x >= rect.x && x <= (rect.x + rect.w) && y >= rect.y && y <= (rect.y + rect.h);
                         });
                         
@@ -383,3 +397,4 @@
     </script>
 </body>
 </html>
+
