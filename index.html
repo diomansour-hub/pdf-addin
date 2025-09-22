@@ -181,38 +181,57 @@
 
                 // --- OCR & PDF HANDLING ---
 
-                // *** NIEUW: Hoofdfunctie die OCR-proces start ***
+                // *** BIJGEWERKT: Functie toont nu paginatelling en betere voortgang ***
                 async function handleFileWithOcr(event) {
                     if (event.target.files.length === 0) return;
                     const selectedFile = event.target.files[0];
                     selectedFileNameLabel.textContent = `Nieuw: ${selectedFile.name}`;
 
-                    showLoader(`PDF wordt doorzoekbaar gemaakt (OCR)...`);
-                    
+                    showLoader(`PDF analyseren...`);
+
+                    // Stap 1: Krijg het aantal pagina's met PDF.js voor context
+                    let numPages = 0;
+                    try {
+                        const fileData = await selectedFile.arrayBuffer();
+                        const pdfDoc = await pdfjsLib.getDocument({ data: fileData }).promise;
+                        numPages = pdfDoc.numPages;
+                        updateStatus(`Klaarmaken voor OCR (${numPages} pagina's)...`, 'info', true);
+                    } catch (e) {
+                        console.error("Kon paginanummer niet lezen, OCR wordt toch gestart.", e);
+                        updateStatus('Klaarmaken voor OCR...', 'info', true);
+                    }
+
                     let worker;
                     try {
                         worker = await Tesseract.createWorker({
                             logger: m => {
-                                // Update de status met de voortgang van het OCR-proces
+                                const pageContext = numPages > 0 ? ` (totaal ${numPages} pag.)` : '';
                                 if (m.status === 'recognizing text') {
                                     const progress = (m.progress * 100).toFixed(0);
-                                    statusText.textContent = `Tekstherkenning: ${progress}%`;
+                                    statusText.textContent = `Tekstherkenning${pageContext}: ${progress}%`;
                                 } else {
-                                     statusText.textContent = `Bezig met: ${m.status}...`;
+                                     // Vertaal enkele statussen voor een betere gebruikerservaring
+                                    let statusNL = m.status;
+                                    switch(m.status) {
+                                        case 'loading language model': statusNL = 'taalmodel laden'; break;
+                                        case 'initializing': statusNL = 'initialiseren'; break;
+                                        case 'initialized': statusNL = 'geïnitialiseerd'; break;
+                                        case 'loading': statusNL = 'laden'; break;
+                                        case 'loaded': statusNL = 'geladen'; break;
+                                    }
+                                    statusText.textContent = `Bezig met ${statusNL}...`;
                                 }
                             }
                         });
 
                         await worker.loadLanguage('nld');
                         await worker.initialize('nld');
-                        // Belangrijke parameter om een doorzoekbare PDF als output te krijgen
                         await worker.setParameters({ tesedit_create_pdf: '1' });
                         
                         const { data } = await worker.recognize(selectedFile);
                         
-                        updateStatus('Verwerkte PDF wordt opgeslagen...', 'info');
+                        updateStatus('Verwerkte PDF opslaan...', 'info', true);
                         
-                        // Converteer de Uint8Array output naar een ArrayBuffer voor opslag
                         const pdfBlob = new Blob([data.pdf], { type: 'application/pdf' });
                         const searchablePdfArrayBuffer = await pdfBlob.arrayBuffer();
 
@@ -223,7 +242,7 @@
                         updateStatus('Fout tijdens OCR-proces. Is de PDF geldig?', 'error');
                     } finally {
                         if (worker) {
-                            await worker.terminate(); // Vrijmaken van geheugen
+                            await worker.terminate();
                         }
                         fileInput.value = '';
                         selectedFileNameLabel.textContent = 'Geen nieuw bestand geselecteerd.';
@@ -689,7 +708,24 @@
                 function arrayBufferToBase64(buffer) { let binary = ''; const bytes = new Uint8Array(buffer); for (let i = 0; i < bytes.byteLength; i++) { binary += String.fromCharCode(bytes[i]); } return window.btoa(binary); }
                 function base64ToUint8Array(base64) { const binary_string = window.atob(base64); const len = binary_string.length; const bytes = new Uint8Array(len); for (let i = 0; i < len; i++) { bytes[i] = binary_string.charCodeAt(i); } return bytes; }
                 function showLoader(text) { statusMessage.classList.remove('hidden'); loader.classList.remove('hidden'); statusText.textContent = text; pdfViewer.innerHTML = ''; }
-                function updateStatus(text, type) { statusMessage.classList.remove('hidden'); loader.classList.add('hidden'); statusText.textContent = text; statusText.className = 'status-text'; if (type === 'error') statusText.classList.add('text-red-500'); else if (type === 'success') statusText.classList.add('text-green-500'); else statusText.classList.add('text-gray-500'); }
+                
+                // *** BIJGEWERKT: Ondersteunt nu het zichtbaar houden van de lader ***
+                function updateStatus(text, type, keepLoader = false) {
+                    statusMessage.classList.remove('hidden');
+                    statusText.textContent = text;
+                    // Reset classes voor de zekerheid
+                    statusText.classList.remove('text-red-500', 'text-green-500', 'text-gray-500');
+
+                    if (type === 'error') statusText.classList.add('text-red-500');
+                    else if (type === 'success') statusText.classList.add('text-green-500');
+                    else statusText.classList.add('text-gray-500');
+
+                    if (keepLoader) {
+                        loader.classList.remove('hidden');
+                    } else {
+                        loader.classList.add('hidden');
+                    }
+                }
 
                 // --- INITIALIZE ---
                 initializeApp();
@@ -698,3 +734,4 @@
     </script>
 </body>
 </html>
+
