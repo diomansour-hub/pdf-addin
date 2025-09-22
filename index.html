@@ -20,7 +20,11 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .draw-mode-active { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); }
         .page-container { position: relative; margin: 0.5rem auto; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-        .annotation-canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+        /* Canvases are stacked on top of each other */
+        .page-container canvas { position: absolute; top: 0; left: 0; }
+        .annotation-canvas { z-index: 10; cursor: default; } /* Annotations on top */
+        .highlight-canvas { z-index: 5; pointer-events: none; } /* Highlights below annotations, not clickable */
+        
         /* Styles for the modal popup */
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
         .modal-content { background-color: white; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.2); width: 90%; max-width: 400px; }
@@ -53,6 +57,20 @@
                 <button id="approve-button" disabled class="bg-gray-300 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors flex-grow">Goedkeuren</button>
                 <button id="reject-button" disabled class="bg-gray-300 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors flex-grow">Afkeuren</button>
                 <button id="textsnip-button" disabled class="bg-gray-300 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors flex-grow">Textsnip</button>
+            </div>
+            <!-- Search controls - NEW -->
+            <div id="search-container" class="hidden">
+                 <div class="flex items-center space-x-2">
+                    <input type="text" id="search-input" placeholder="Zoek in PDF..." class="flex-grow p-2 border border-gray-300 rounded-md text-sm">
+                    <button id="search-clear-button" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded-md text-sm font-medium">Wis</button>
+                </div>
+                <div class="flex items-center justify-between mt-2">
+                    <div class="flex items-center space-x-2">
+                        <button id="search-prev-button" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm font-medium"><</button>
+                        <button id="search-next-button" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm font-medium">></button>
+                    </div>
+                    <span id="search-status" class="text-xs text-gray-600">Geen resultaten</span>
+                </div>
             </div>
             <div class="text-xs text-gray-600 bg-gray-100 p-2 rounded-md">
                 Geselecteerde cel: <span id="active-cell-address" class="font-mono font-bold">Geen</span>
@@ -105,6 +123,13 @@
                 const manualTextInput = document.getElementById('manual-text-input');
                 const saveManualTextButton = document.getElementById('save-manual-text');
                 const cancelManualTextButton = document.getElementById('cancel-manual-text');
+                // New Search UI Elements
+                const searchContainer = document.getElementById('search-container');
+                const searchInput = document.getElementById('search-input');
+                const searchClearButton = document.getElementById('search-clear-button');
+                const searchPrevButton = document.getElementById('search-prev-button');
+                const searchNextButton = document.getElementById('search-next-button');
+                const searchStatus = document.getElementById('search-status');
 
 
                 // --- Application State ---
@@ -115,6 +140,11 @@
                 let startCoords = { x: 0, y: 0 };
                 let currentDrawingType = null; // Can be 'approve', 'reject', or 'textsnip'
                 let tempAnnotationData = null; // To hold data for manual input
+                // New Search State
+                let searchResults = [];
+                let currentSearchResultIndex = -1;
+                let pdfDoc = null; // cache the loaded pdf document object
+
 
                 // --- Event Listeners ---
                 fileInput.addEventListener('change', handleFileSelectAndSave);
@@ -126,6 +156,12 @@
                 textsnipButton.addEventListener('click', () => toggleDrawMode('textsnip'));
                 saveManualTextButton.addEventListener('click', handleSaveManualText);
                 cancelManualTextButton.addEventListener('click', closeManualTextModal);
+                // New Search Event Listeners
+                searchInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') performSearch(); });
+                searchClearButton.addEventListener('click', clearSearch);
+                searchPrevButton.addEventListener('click', () => navigateSearchResults('prev'));
+                searchNextButton.addEventListener('click', () => navigateSearchResults('next'));
+
 
                 // Listen for selection changes in the Excel document
                 Office.context.document.addHandlerAsync(Office.EventType.DocumentSelectionChanged, onSelectionChange);
@@ -305,26 +341,41 @@
                     pdfViewer.innerHTML = '';
                     try {
                         const loadingTask = pdfjsLib.getDocument({ data });
-                        const pdf = await loadingTask.promise;
-                        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                            const page = await pdf.getPage(pageNum);
+                        pdfDoc = await loadingTask.promise; // Store the pdf document object
+                        
+                        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+                            const page = await pdfDoc.getPage(pageNum);
                             const viewport = page.getViewport({ scale: 1.5 });
+                            
                             const pageContainer = document.createElement('div');
                             pageContainer.className = 'page-container';
                             pageContainer.style.width = `${viewport.width}px`;
                             pageContainer.style.height = `${viewport.height}px`;
-                            const pdfCanvas = document.createElement('canvas');
-                            pdfCanvas.width = viewport.width;
-                            pdfCanvas.height = viewport.height;
-                            const annotationCanvas = document.createElement('canvas');
+
+                            const pdfCanvas = document.createElement('canvas'); // Base PDF layer
+                            pdfCanvas.className = 'pdf-canvas';
+                            
+                            const highlightCanvas = document.createElement('canvas'); // New layer for search highlights
+                            highlightCanvas.className = 'highlight-canvas';
+                            
+                            const annotationCanvas = document.createElement('canvas'); // Top layer for user drawings
                             annotationCanvas.className = 'annotation-canvas';
-                            annotationCanvas.width = viewport.width;
-                            annotationCanvas.height = viewport.height;
-                            pageContainer.append(pdfCanvas, annotationCanvas);
+                            
+                            // Set dimensions for all canvases
+                            [pdfCanvas, highlightCanvas, annotationCanvas].forEach(canvas => {
+                                canvas.width = viewport.width;
+                                canvas.height = viewport.height;
+                            });
+
+                            pageContainer.append(pdfCanvas, highlightCanvas, annotationCanvas);
                             pdfViewer.appendChild(pageContainer);
+                            
                             await page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: viewport }).promise;
+                            
+                            // Draw existing annotations
                             drawAnnotations(pageNum, annotationCanvas, annotations);
 
+                            // Add event listeners to the top annotation canvas
                             annotationCanvas.addEventListener('mousedown', (e) => handleMouseDown(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mousemove', (e) => handleMouseMove(e, pageNum, annotationCanvas));
                             annotationCanvas.addEventListener('mouseup', (e) => handleMouseUp(e, pageNum, page));
@@ -337,6 +388,100 @@
                     }
                 }
 
+                // --- SEARCH FUNCTIONS (NEW) ---
+
+                async function performSearch() {
+                    const query = searchInput.value.trim().toLowerCase();
+                    if (!query || query.length < 2) {
+                        clearSearchHighlights();
+                        updateSearchStatus();
+                        return;
+                    }
+                    if (!pdfDoc) return;
+
+                    showLoader(`Zoeken naar '${query}'...`);
+                    searchResults = [];
+                    
+                    for (let i = 1; i <= pdfDoc.numPages; i++) {
+                        const page = await pdfDoc.getPage(i);
+                        const textContent = await page.getTextContent();
+                        const viewport = page.getViewport({ scale: 1.5 });
+                        
+                        textContent.items.forEach(item => {
+                            if (item.str.toLowerCase().includes(query)) {
+                                const rect = {
+                                    pageNum: i,
+                                    x: item.transform[4],
+                                    y: viewport.height - item.transform[5] - item.height, // Adjust for top-left origin
+                                    w: item.width,
+                                    h: item.height
+                                };
+                                searchResults.push(rect);
+                            }
+                        });
+                    }
+                    
+                    statusMessage.classList.add('hidden'); // Hide loader
+                    
+                    if (searchResults.length > 0) {
+                        currentSearchResultIndex = 0;
+                        highlightSearchResult();
+                    } else {
+                        currentSearchResultIndex = -1;
+                        clearSearchHighlights();
+                    }
+                    updateSearchStatus();
+                }
+
+                function navigateSearchResults(direction) {
+                    if (searchResults.length === 0) return;
+                    if (direction === 'next') {
+                        currentSearchResultIndex = (currentSearchResultIndex + 1) % searchResults.length;
+                    } else if (direction === 'prev') {
+                        currentSearchResultIndex = (currentSearchResultIndex - 1 + searchResults.length) % searchResults.length;
+                    }
+                    highlightSearchResult();
+                    updateSearchStatus();
+                }
+
+                function highlightSearchResult() {
+                    clearSearchHighlights();
+                    if (currentSearchResultIndex < 0) return;
+
+                    const result = searchResults[currentSearchResultIndex];
+                    const highlightCanvas = document.querySelectorAll('.highlight-canvas')[result.pageNum - 1];
+                    const ctx = highlightCanvas.getContext('2d');
+                    
+                    ctx.fillStyle = 'rgba(255, 255, 0, 0.4)'; // Yellow highlight
+                    ctx.fillRect(result.x, result.y, result.w, result.h);
+                    
+                    scrollToPage(result.pageNum);
+                }
+
+                function clearSearchHighlights() {
+                    const highlightCanvases = document.querySelectorAll('.highlight-canvas');
+                    highlightCanvases.forEach(canvas => {
+                        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+                    });
+                }
+                
+                function clearSearch() {
+                    searchInput.value = '';
+                    searchResults = [];
+                    currentSearchResultIndex = -1;
+                    clearSearchHighlights();
+                    updateSearchStatus();
+                }
+
+                function updateSearchStatus() {
+                    if (searchResults.length === 0) {
+                        searchStatus.textContent = searchInput.value ? 'Geen resultaten' : '';
+                    } else {
+                        searchStatus.textContent = `Resultaat ${currentSearchResultIndex + 1} van ${searchResults.length}`;
+                    }
+                }
+
+
                 // --- HELPER & UTILITY FUNCTIONS ---
                 
                 async function extractTextFromArea(pdfPage, rect) {
@@ -344,18 +489,15 @@
                     const textContent = await pdfPage.getTextContent();
                     const extractedItems = [];
                     for (const item of textContent.items) {
-                        // The transform property gives us position and size info
                         const tx = item.transform[4];
                         const ty = item.transform[5];
                         const itemWidth = item.width;
                         const itemHeight = item.height;
                         
-                        // PDF coordinates have the origin at the bottom-left, so we need to transform the Y coordinate
                         const pdfY = viewport.height - ty;
 
-                        // Check if the item's bounding box intersects with the drawn rectangle
-                        if (tx >= rect.x && (tx + itemWidth) <= (rect.x + rect.w) &&
-                            pdfY >= rect.y && (pdfY - itemHeight) <= (rect.y + rect.h)) {
+                        if (tx < (rect.x + rect.w) && (tx + itemWidth) > rect.x &&
+                            pdfY < (rect.y + rect.h) && (pdfY - itemHeight) > rect.y) {
                             extractedItems.push(item.str);
                         }
                     }
@@ -397,12 +539,13 @@
                     const pageContainers = document.querySelectorAll('.page-container');
                     const targetPage = pageContainers[pageNum - 1];
                     if (targetPage) {
-                        targetPage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        targetPage.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
                 }
 
                 async function loadPdf(pdfId) {
                     activePdfId = pdfId;
+                    clearSearch(); // Clear search results when loading a new PDF
                     const pdfObject = pdfCollection.find(p => p.id === pdfId);
                     if (!pdfObject) { initializeApp(); return; }
                     showLoader(`'${pdfObject.name}' laden...`);
@@ -416,7 +559,7 @@
                 function switchActivePdf() { const selectedId = pdfSwitcher.value; if (selectedId) { loadPdf(selectedId); } }
                 function deleteCurrentPdf() { if (!activePdfId) return; const pdfToDelete = pdfCollection.find(p => p.id === activePdfId); pdfCollection = pdfCollection.filter(p => p.id !== activePdfId); activePdfId = null; saveCollectionToSettings(initializeApp); }
                 function updatePdfSwitcher() { pdfSwitcher.innerHTML = ''; if (pdfCollection.length === 0) { const option = document.createElement('option'); option.textContent = 'Geen documenten geladen'; pdfSwitcher.appendChild(option); return; } pdfCollection.forEach(pdf => { const option = document.createElement('option'); option.value = pdf.id; option.textContent = pdf.name; if (pdf.id === activePdfId) { option.selected = true; } pdfSwitcher.appendChild(option); }); }
-                function setButtonsState(enabled) { exportButton.disabled = !enabled; approveButton.disabled = !enabled; rejectButton.disabled = !enabled; textsnipButton.disabled = !enabled; deleteButton.disabled = !enabled; [exportButton, approveButton, rejectButton, textsnipButton].forEach(btn => { btn.classList.toggle('bg-gray-300', !enabled); }); exportButton.classList.toggle('bg-orange-500', enabled); approveButton.classList.toggle('bg-green-500', enabled); rejectButton.classList.toggle('bg-red-500', enabled); textsnipButton.classList.toggle('bg-blue-500', enabled); }
+                function setButtonsState(enabled) { exportButton.disabled = !enabled; approveButton.disabled = !enabled; rejectButton.disabled = !enabled; textsnipButton.disabled = !enabled; deleteButton.disabled = !enabled; searchContainer.classList.toggle('hidden', !enabled); [exportButton, approveButton, rejectButton, textsnipButton].forEach(btn => { btn.classList.toggle('bg-gray-300', !enabled); }); exportButton.classList.toggle('bg-orange-500', enabled); approveButton.classList.toggle('bg-green-500', enabled); rejectButton.classList.toggle('bg-red-500', enabled); textsnipButton.classList.toggle('bg-blue-500', enabled); }
                 function saveCollectionToSettings(callback) { Office.context.document.settings.set('pdfCollection', JSON.stringify(pdfCollection)); Office.context.document.settings.saveAsync(result => { if (result.status === Office.AsyncResultStatus.Failed) { updateStatus('Fout bij opslaan: ' + result.error.message, 'error'); } else if (callback) { callback(); } }); }
                 
                 function toggleDrawMode(type) {
@@ -426,7 +569,10 @@
                         currentDrawingType = type;
                     }
                     updateDrawButtonStyles();
-                    pdfViewer.style.cursor = currentDrawingType ? 'crosshair' : 'default';
+                    
+                    const annotationCanvases = document.querySelectorAll('.annotation-canvas');
+                    const cursorStyle = currentDrawingType ? 'crosshair' : 'default';
+                    annotationCanvases.forEach(c => c.style.cursor = cursorStyle);
                 }
 
                 function updateDrawButtonStyles() {
@@ -522,4 +668,3 @@
     </script>
 </body>
 </html>
-
