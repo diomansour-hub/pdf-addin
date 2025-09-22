@@ -235,8 +235,8 @@
 
                         const timeoutPromise = new Promise((_, reject) => {
                             setTimeout(() => {
-                                reject(new Error("Het aanmaken van de OCR-worker duurde te lang (30s timeout)."));
-                            }, 30000); // 30 seconden
+                                reject(new Error("Het aanmaken van de OCR-worker duurde te lang (10min timeout)."));
+                            }, 600000); // 10 minuten
                         });
 
                         worker = await Promise.race([workerPromise, timeoutPromise]);
@@ -763,5 +763,6 @@
     </script>
 </body>
 </html>
+
 
 
